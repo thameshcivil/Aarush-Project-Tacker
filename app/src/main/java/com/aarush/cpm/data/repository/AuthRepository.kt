@@ -33,4 +33,29 @@ class AuthRepository(private val db: AppDatabase) {
             Result.failure(IllegalStateException("Incorrect password."))
         }
     }
+
+    /**
+     * Called after Credential Manager / Google has already authenticated the person on-device
+     * (see [com.aarush.cpm.ui.login.GoogleSignInHelper]). We trust that signed assertion for
+     * this local-only V1 the same way we trust a typed password: it never leaves the device.
+     * A production build with a real backend should still verify the Google ID token
+     * server-side before treating someone as logged in.
+     */
+    suspend fun loginWithGoogle(email: String, displayName: String): Result<User> {
+        val existing = db.userDao().findByEmail(email)
+        if (existing != null) return Result.success(existing)
+
+        val id = db.userDao().insert(
+            User(
+                username = displayName.ifBlank { email.substringBefore("@") },
+                email = email,
+                passwordHash = "", // no local password for Google accounts
+                rememberMe = true,
+                authProvider = "GOOGLE"
+            )
+        )
+        val created = db.userDao().findByEmail(email)
+            ?: return Result.failure(IllegalStateException("Could not create account for $email."))
+        return Result.success(created)
+    }
 }

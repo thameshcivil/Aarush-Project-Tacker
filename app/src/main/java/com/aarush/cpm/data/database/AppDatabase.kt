@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.aarush.cpm.data.dao.*
 import com.aarush.cpm.data.entity.*
 
@@ -27,9 +29,10 @@ import com.aarush.cpm.data.entity.*
         ScheduleDependency::class,
         ProjectProgress::class,
         AppNotification::class,
-        AppSettings::class
+        AppSettings::class,
+        ProjectAreaComponent::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -53,9 +56,32 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun userDao(): UserDao
+    abstract fun projectAreaComponentDao(): ProjectAreaComponentDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
+
+        /** v1 → v2: adds the project_area_components table (multi area/rate line items per
+         *  project) and a users.authProvider column (LOCAL vs GOOGLE accounts). Both additive,
+         *  no data loss for existing installs. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_area_components (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        projectId INTEGER NOT NULL,
+                        label TEXT NOT NULL,
+                        areaSqft REAL NOT NULL,
+                        ratePerSqft REAL NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "ALTER TABLE users ADD COLUMN authProvider TEXT NOT NULL DEFAULT 'LOCAL'"
+                )
+            }
+        }
 
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -63,7 +89,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "aarush_cpm.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build().also { INSTANCE = it }
             }
     }
 }

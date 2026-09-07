@@ -20,8 +20,11 @@ import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,16 +32,18 @@ class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
     private val vendorRepository: VendorRepository
 ) : ViewModel() {
-    private var projectId: Long = 0L
-    lateinit var expenses: StateFlow<List<Expense>>
-        private set
-    lateinit var vendors: StateFlow<List<Vendor>>
-        private set
+    private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    val expenses: StateFlow<List<Expense>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else expenseRepository.observeForProject(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val vendors: StateFlow<List<Vendor>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else vendorRepository.observeForProject(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
-        this.projectId = projectId
-        expenses = expenseRepository.observeForProject(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-        vendors = vendorRepository.observeForProject(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        projectIdFlow.value = projectId
     }
 
     fun addExpense(
@@ -46,10 +51,11 @@ class ExpenseViewModel(
         quantity: Double, unit: String, rate: Double, paymentMode: PaymentMode,
         paymentStatus: PaymentStatus, invoiceNumber: String, notes: String
     ) {
+        val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             expenseRepository.addExpense(
                 Expense(
-                    projectId = projectId, date = System.currentTimeMillis(), category = category, type = type,
+                    projectId = currentProjectId, date = System.currentTimeMillis(), category = category, type = type,
                     vendorId = vendorId, itemOrMaterialName = itemName, quantity = quantity, unit = unit, rate = rate,
                     totalAmount = CalculationEngine.expenseTotal(quantity, rate), paymentMode = paymentMode,
                     paymentStatus = paymentStatus, invoiceNumber = invoiceNumber, notes = notes

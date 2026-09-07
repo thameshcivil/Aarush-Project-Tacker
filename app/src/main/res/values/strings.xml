@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">Aarush CPM</string>
+
+    <!-- Google Sign-In: replace with your own OAuth 2.0 Web Client ID from Firebase/Google
+         Cloud Console (Credentials → OAuth 2.0 Client IDs → Web application). This is NOT
+         the Android client ID. See README "Setting up Google Sign-In" for the full setup —
+         it requires registering your app's signing certificate fingerprint with Google, which
+         only you can do. Left as a placeholder so the app still builds without it (the button
+         will show a clear "not configured yet" message instead of crashing). -->
+    <string name="google_web_client_id">REPLACE_WITH_YOUR_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </resources>

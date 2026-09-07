@@ -20,29 +20,36 @@ import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.repository.BOQRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
-    private var projectId: Long = 0L
-    lateinit var items: StateFlow<List<BOQItem>>
-        private set
+    private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    // Eagerly initialized (never lateinit) so the very first composition always has a safe,
+    // empty value to collect — no crash if the UI reads this before init() has run.
+    val items: StateFlow<List<BOQItem>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repository.observeForProject(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
-        this.projectId = projectId
-        items = repository.observeForProject(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        projectIdFlow.value = projectId
     }
 
     fun addItem(
         itemCode: String, category: CostCategory, description: String, unit: String,
         quantity: Double, rate: Double, materialType: String, wastePercent: Double
     ) {
+        val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             repository.addItem(
                 BOQItem(
-                    projectId = projectId, itemCode = itemCode, category = category, description = description,
+                    projectId = currentProjectId, itemCode = itemCode, category = category, description = description,
                     unit = unit, quantity = quantity, rate = rate, amount = CalculationEngine.boqAmount(quantity, rate),
                     materialType = materialType, wastePercent = wastePercent
                 )

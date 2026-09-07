@@ -29,25 +29,29 @@ class ClientPaymentViewModel(
     private val paymentRepository: ClientPaymentRepository,
     private val projectRepository: ProjectRepository
 ) : ViewModel() {
-    private var projectId: Long = 0L
-    lateinit var payments: StateFlow<List<ClientPayment>>
-        private set
-    lateinit var totalReceived: StateFlow<Double>
-        private set
+    private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    val payments: StateFlow<List<ClientPayment>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else paymentRepository.observeForProject(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalReceived: StateFlow<Double> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(0.0) else paymentRepository.observeTotalReceived(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
     private val _project = MutableStateFlow<Project?>(null)
     val project: StateFlow<Project?> = _project.asStateFlow()
 
     fun init(projectId: Long) {
-        this.projectId = projectId
-        payments = paymentRepository.observeForProject(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-        totalReceived = paymentRepository.observeTotalReceived(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+        projectIdFlow.value = projectId
         viewModelScope.launch { _project.value = projectRepository.getById(projectId) }
     }
 
     fun addPayment(amount: Double, mode: PaymentMode, reference: String, notes: String) {
+        val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             paymentRepository.addPayment(
-                ClientPayment(projectId = projectId, date = System.currentTimeMillis(), amountReceived = amount, paymentMode = mode, referenceNumber = reference, notes = notes)
+                ClientPayment(projectId = currentProjectId, date = System.currentTimeMillis(), amountReceived = amount, paymentMode = mode, referenceNumber = reference, notes = notes)
             )
         }
     }

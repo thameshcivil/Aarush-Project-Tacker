@@ -14,7 +14,8 @@ remaining manually editable at every step.
 
 ## Features
 
-- **Project setup**: plinth area × rate/sqft → auto project value (manually overridable)
+- **Project setup**: multi-row area × rate breakdown (e.g. Residence at one ₹/sqft rate,
+  Staircase or Portico at another) → auto-summed project value (manually overridable)
 - **Thumb-rule cost distribution** across Civil/Structural, MEP, Painting, Joinery, Other
   — fully editable percentages, validated to sum to 100%
 - **Material/labour split** within each category budget
@@ -104,9 +105,46 @@ command line too.
 
 Authentication is local/mock in V1 (username or email + password, stored hashed in
 Room), with a "Create account" flow and a "Remember me" toggle. The architecture keeps
-this behind `AuthRepository`'s interface so Firebase Auth or a custom backend can be
-swapped in later without touching any ViewModel or screen. "Forgot password" is a UI
-stub in V1 since there's no backend to send a reset link through yet.
+this behind `AuthRepository`'s interface so a real backend can be swapped in later
+without touching any ViewModel or screen. "Forgot password" is a UI stub in V1 since
+there's no backend to send a reset link through yet.
+
+**Sign in with Google** is also available on the login screen, using the current
+[Credential Manager API](https://developer.android.com/identity/sign-in/credential-manager-siwg)
+(`GoogleSignInHelper.kt`). This requires a one-time setup step that only you (the app
+owner) can do, because it needs your app's own signing certificate registered with
+Google — see below.
+
+### Setting up Google Sign-In
+
+1. Create (or open) a project in the [Google Cloud Console](https://console.cloud.google.com/)
+   or [Firebase Console](https://console.firebase.google.com/) — either works, since this
+   uses standard Google OAuth, not a Firebase-specific SDK.
+2. Get your app's SHA-1 signing certificate fingerprint:
+   ```bash
+   # Debug builds (Android Studio's default debug keystore):
+   keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+   ```
+   For release builds, use your real release keystore instead.
+3. In Google Cloud Console → **APIs & Services → Credentials**, create an **OAuth 2.0
+   Client ID** of type **Android**, using package name `com.aarush.cpm` and the SHA-1 from
+   step 2. This registers your app with Google (needed even though the code doesn't
+   reference this ID directly).
+4. Create a second OAuth 2.0 Client ID of type **Web application**. Copy its client ID —
+   it looks like `1234567890-abc...apps.googleusercontent.com`.
+5. Paste that Web client ID into `app/src/main/res/values/strings.xml`, replacing the
+   `google_web_client_id` placeholder value.
+6. Rebuild and run. The "Sign in with Google" button will now show the real account
+   picker instead of the "not configured yet" message.
+
+Until you complete this, the button still works — it just returns a clear error instead
+of crashing, so the rest of the app is unaffected either way.
+
+**Note on V1 trust model:** because this is a fully offline, local-only app with no
+backend server, the Google ID token is trusted on-device the same way a typed password
+is (it never leaves the device). If you add a real backend later, verify the ID token
+server-side before treating someone as logged in, rather than trusting the client alone.
+
 
 ## Database
 
@@ -149,6 +187,23 @@ layer is the intended seam), vendor/client logins, photo-based expense records w
 OCR/invoice scanning, WhatsApp sharing, automatic PDF quotations, GST support, purchase
 orders, vendor work measurement, site photo/drawing storage, Gantt charts, advanced
 analytics.
+
+## Changelog
+
+**Since first build:**
+- Fixed a crash: the BOQ, Expenses, Vendors, and Client Payments screens would close the
+  app immediately on open. Cause: their ViewModels read a `lateinit` `StateFlow` before
+  the coroutine that initialized it had run. Fixed by initializing all screen state
+  eagerly with `flatMapLatest` over a `MutableStateFlow<Long?>` project id (see any of
+  `BOQViewModel`, `ExpenseViewModel`, `VendorViewModel`, `ClientPaymentViewModel`).
+- Fixed the launcher icon XML namespace typo (`res/vector` → `res/android`) that made
+  `processDebugResources` fail in CI/Android Studio.
+- Added **Sign in with Google** on the login screen (Credential Manager API) — requires
+  a one-time setup only the app owner can do, see [Setting up Google Sign-In](#setting-up-google-sign-in).
+- Project creation now supports **multiple area/rate line items** per project (e.g.
+  Residence at one ₹/sqft rate, Staircase at another) instead of a single blended
+  area × rate. Existing single-area projects still work identically — a project is just
+  the special case of one row.
 
 ## Contributing
 

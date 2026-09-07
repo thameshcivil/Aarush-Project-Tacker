@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.entity.MaterialUsage
+import com.aarush.cpm.data.entity.ProjectAreaComponent
 import com.aarush.cpm.data.repository.*
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit
 data class ProjectDetailUiState(
     val summary: ProjectSummary? = null,
     val materialStatus: List<MaterialStatusRow> = emptyList(),
+    val areaComponents: List<ProjectAreaComponent> = emptyList(),
     val daysRemaining: Long? = null,
     val isLoading: Boolean = true
 )
@@ -49,11 +51,13 @@ class ProjectDetailViewModel(
             _uiState.value = _uiState.value.copy(isLoading = true)
             val summary = summaryRepository.buildSummary(projectId)
             val materials = materialRepository.materialStatus(projectId)
+            val areaComponents = projectRepository.getAreaComponents(projectId)
             val daysRemaining = summary?.project?.expectedCompletionDate?.let {
                 TimeUnit.MILLISECONDS.toDays(it - System.currentTimeMillis())
             }
             _uiState.value = ProjectDetailUiState(
-                summary = summary, materialStatus = materials, daysRemaining = daysRemaining, isLoading = false
+                summary = summary, materialStatus = materials, areaComponents = areaComponents,
+                daysRemaining = daysRemaining, isLoading = false
             )
         }
     }
@@ -99,6 +103,17 @@ fun ProjectDetailScreen(
             }
             item {
                 LazyRowStats(summary = summary, daysRemaining = state.daysRemaining)
+            }
+            if (state.areaComponents.size > 1) {
+                item { Text("Area & Rate Breakdown", style = MaterialTheme.typography.titleSmall) }
+                items(state.areaComponents) { comp ->
+                    Card {
+                        Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(comp.label, fontWeight = FontWeight.SemiBold)
+                            Text("${formatQuantity(comp.areaSqft, "sqft")} @ ${formatCurrency(comp.ratePerSqft)} = ${formatCurrency(comp.areaSqft * comp.ratePerSqft)}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
             item { Text("Quick actions", style = MaterialTheme.typography.titleSmall) }
             item {

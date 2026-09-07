@@ -74,6 +74,13 @@ dependencies {
     // DataStore (for "remember me" / settings)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Google Sign-In (Credential Manager — the current recommended API, replaces the old
+    // GoogleSignInClient). Requires a Firebase/Google Cloud OAuth Web Client ID — see
+    // README "Setting up Google Sign-In" for the one-time setup only you can do.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
     // Charts (simple, lightweight - Compose native canvas used instead of heavy lib)
 
     // Testing

@@ -32,5 +32,8 @@ data class User(
     val email: String,
     val passwordHash: String,
     val rememberMe: Boolean = false,
+    /** "LOCAL" for username/password accounts, "GOOGLE" for Google Sign-In accounts.
+     *  Plain String (not an enum) to keep the schema migration trivial — see AppDatabase. */
+    val authProvider: String = "LOCAL",
     val createdAt: Long = System.currentTimeMillis()
 )

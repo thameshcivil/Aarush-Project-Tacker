@@ -21,8 +21,11 @@ import com.aarush.cpm.data.entity.VendorWorkCategory
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.ui.common.formatCurrency
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -30,23 +33,25 @@ class VendorViewModel(
     private val vendorRepository: VendorRepository,
     private val projectRepository: ProjectRepository
 ) : ViewModel() {
-    private var projectId: Long = 0L
-    lateinit var vendors: StateFlow<List<Vendor>>
-        private set
+    private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    val vendors: StateFlow<List<Vendor>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else vendorRepository.observeForProject(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
-        this.projectId = projectId
-        vendors = vendorRepository.observeForProject(projectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        projectIdFlow.value = projectId
     }
 
     fun addVendor(
         name: String, contact: String, workCategory: VendorWorkCategory, rateType: VendorRateType,
         rate: Double, quantity: Double, paymentTerms: String, notes: String
     ) {
+        val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
-            val project = projectRepository.getById(projectId)
+            val project = projectRepository.getById(currentProjectId)
             vendorRepository.addVendor(
-                projectId = projectId, name = name, contact = contact, workCategory = workCategory,
+                projectId = currentProjectId, name = name, contact = contact, workCategory = workCategory,
                 rateType = rateType, rate = rate, quantity = quantity, projectValue = project?.projectValue ?: 0.0,
                 startDate = System.currentTimeMillis(), endDate = System.currentTimeMillis(),
                 paymentTerms = paymentTerms, notes = notes

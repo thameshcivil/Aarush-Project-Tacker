@@ -27,8 +27,9 @@ class SampleDataSeeder(
             location = "Sample Layout, Demo City",
             projectType = "G+1",
             numberOfFloors = 2,
-            plinthAreaSqft = 2000.0,
-            ratePerSqft = 2500.0,
+            areaComponents = listOf(
+                com.aarush.cpm.data.repository.AreaRateComponent(label = "Main structure", areaSqft = 2000.0, ratePerSqft = 2500.0)
+            ),
             startDate = daysFromNow(-30),
             expectedCompletionDate = daysFromNow(150),
             notes = "Demo/sample project for testing. Safe to delete.",

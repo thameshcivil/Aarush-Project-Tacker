@@ -1,5 +1,6 @@
 package com.aarush.cpm.ui.login
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -8,12 +9,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aarush.cpm.R
 import com.aarush.cpm.data.repository.AuthRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,6 +80,25 @@ class LoginViewModel(private val authRepository: AuthRepository) : ViewModel() {
             }
         }
     }
+
+    fun loginWithGoogle(context: Context, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            val serverClientId = context.getString(R.string.google_web_client_id)
+            val signInResult = GoogleSignInHelper.signIn(context, serverClientId)
+            signInResult.onSuccess { account ->
+                val loginResult = authRepository.loginWithGoogle(account.email, account.displayName)
+                loginResult.onSuccess {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                    onSuccess()
+                }.onFailure {
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = it.message)
+                }
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = it.message ?: "Google Sign-In was cancelled or failed.")
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -137,6 +159,20 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = viewModel::toggleCreateAccountMode) { Text("Create account") }
+
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(modifier = Modifier.weight(1f))
+                Text("  OR  ", style = MaterialTheme.typography.labelSmall)
+                HorizontalDivider(modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(16.dp))
+            val context = LocalContext.current
+            OutlinedButton(
+                onClick = { viewModel.loginWithGoogle(context, onLoginSuccess) },
+                enabled = !state.isLoading,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Sign in with Google") }
         } else {
             OutlinedTextField(
                 value = state.createUsername, onValueChange = viewModel::onCreateUsernameChange,

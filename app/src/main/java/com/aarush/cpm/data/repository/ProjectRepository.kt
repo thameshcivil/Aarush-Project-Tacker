@@ -4,8 +4,18 @@ import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.CostAllocation
 import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.entity.Project
+import com.aarush.cpm.data.entity.ProjectAreaComponent
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import kotlinx.coroutines.flow.Flow
+
+/** One "area & rate" line item supplied when creating/editing a project — e.g. a residence
+ *  costed at one ₹/sqft rate and a staircase costed at another. Not a Room entity itself;
+ *  ProjectRepository turns these into ProjectAreaComponent rows tied to the new project id. */
+data class AreaRateComponent(
+    val label: String,
+    val areaSqft: Double,
+    val ratePerSqft: Double
+)
 
 class ProjectRepository(private val db: AppDatabase) {
 
@@ -26,7 +36,12 @@ class ProjectRepository(private val db: AppDatabase) {
         CostAllocation(projectId = projectId, category = CostCategory.OTHER_MISC, percentOfProjectValue = 15.0, materialPercent = 50.0, labourPercent = 50.0)
     )
 
-    /** Creates the project and seeds default category cost allocations in one step. */
+    /** Creates the project from one or more area/rate components (e.g. "Residence" at one
+     *  ₹/sqft rate plus "Staircase" at another) and seeds default category cost allocations
+     *  in the same step. Project.projectValue = sum of (areaSqft × ratePerSqft) across every
+     *  component, unless manualProjectValue overrides it. Project.plinthAreaSqft/ratePerSqft
+     *  are kept as a blended total-area / effective-rate summary for screens that just want a
+     *  single headline figure — the itemized breakdown lives in ProjectAreaComponent rows. */
     suspend fun createProject(
         name: String,
         clientName: String,
@@ -34,16 +49,20 @@ class ProjectRepository(private val db: AppDatabase) {
         location: String,
         projectType: String,
         numberOfFloors: Int,
-        plinthAreaSqft: Double,
-        ratePerSqft: Double,
+        areaComponents: List<AreaRateComponent>,
         manualProjectValue: Double? = null,
         startDate: Long,
         expectedCompletionDate: Long,
         notes: String = "",
         isDemoData: Boolean = false
     ): Long {
-        val computedValue = CalculationEngine.projectValue(plinthAreaSqft, ratePerSqft)
+        require(areaComponents.isNotEmpty()) { "At least one area & rate component is required." }
+
+        val totalArea = areaComponents.sumOf { it.areaSqft }
+        val computedValue = areaComponents.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
+        val blendedRate = if (totalArea > 0) computedValue / totalArea else 0.0
         val finalValue = manualProjectValue ?: computedValue
+
         val project = Project(
             name = name,
             clientName = clientName,
@@ -51,8 +70,8 @@ class ProjectRepository(private val db: AppDatabase) {
             location = location,
             projectType = projectType,
             numberOfFloors = numberOfFloors,
-            plinthAreaSqft = plinthAreaSqft,
-            ratePerSqft = ratePerSqft,
+            plinthAreaSqft = totalArea,
+            ratePerSqft = blendedRate,
             projectValue = finalValue,
             isProjectValueManuallyOverridden = manualProjectValue != null,
             startDate = startDate,
@@ -62,8 +81,23 @@ class ProjectRepository(private val db: AppDatabase) {
         )
         val id = db.projectDao().insert(project)
         db.costAllocationDao().insertAll(defaultAllocations(id))
+        db.projectAreaComponentDao().insertAll(
+            areaComponents.map { ProjectAreaComponent(projectId = id, label = it.label, areaSqft = it.areaSqft, ratePerSqft = it.ratePerSqft) }
+        )
         return id
     }
+
+    fun observeAreaComponents(projectId: Long): Flow<List<ProjectAreaComponent>> =
+        db.projectAreaComponentDao().observeForProject(projectId)
+
+    suspend fun getAreaComponents(projectId: Long): List<ProjectAreaComponent> =
+        db.projectAreaComponentDao().getForProject(projectId)
+
+    suspend fun updateAreaComponent(component: ProjectAreaComponent) =
+        db.projectAreaComponentDao().update(component)
+
+    suspend fun deleteAreaComponent(component: ProjectAreaComponent) =
+        db.projectAreaComponentDao().delete(component)
 
     suspend fun updateProject(project: Project) =
         db.projectDao().update(project.copy(updatedAt = System.currentTimeMillis()))
