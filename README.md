@@ -219,6 +219,27 @@ analytics.
   (sets × length × breadth × depth), with the resulting quantity calculated automatically
   instead of typed by hand.
 - BOQ list items are now collapsible/expandable — tap a row to see full details.
+- The area/rate "Add" form inside the popup is now hidden by default — an **Add item**
+  button reveals it only when you need it, instead of always showing empty fields.
+- BOQ quantity entry is now a single unified calculator: **No. of Member × No. Per
+  Member × Length × Breadth × Depth**, with a fixed unit dropdown (Rmt, Rft, Sqft, Sqm,
+  Cft, Cum) instead of free-text units. Any field left blank counts as 1, so a plain
+  count, a pure area, or a full volume all use the same five fields. Picking an item
+  code from the notation dropdown no longer overwrites the description — that's left
+  blank for your own note — and built-in item codes are now numbered (e.g.
+  "001-Excavation").
+- BOQ, Expenses, Vendors, and Client Payments all now have an **Edit** action (not just
+  Delete) on each row, reusing the same Add dialog pre-filled with the existing values.
+- Added **Sign in with biometrics** (fingerprint/face/device PIN via Android's
+  Credential/BiometricPrompt API) for anyone who previously logged in with "Remember me"
+  checked.
+- Fixed **"Remember me" not doing anything**: the checkbox used to just flip a flag in
+  the database that nothing ever read back. It's now backed by DataStore, actually
+  persists across app restarts, pre-fills the identifier field on next launch, and
+  unlocks the biometric quick sign-in option.
+- Added a **Home** tab (first item in the bottom bar) showing a cross-project summary —
+  total BOQ value, expenses, vendor payables, and client payments received across every
+  project at a glance.
 
 ## Contributing
 

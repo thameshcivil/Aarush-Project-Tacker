@@ -7,6 +7,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -28,6 +29,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class ExpenseInput(
+    val category: CostCategory, val type: ExpenseType, val vendorId: Long?, val itemName: String,
+    val quantity: Double, val unit: String, val rate: Double, val paymentMode: PaymentMode,
+    val paymentStatus: PaymentStatus, val invoiceNumber: String, val notes: String
+)
+
 class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
     private val vendorRepository: VendorRepository
@@ -46,19 +53,29 @@ class ExpenseViewModel(
         projectIdFlow.value = projectId
     }
 
-    fun addExpense(
-        category: CostCategory, type: ExpenseType, vendorId: Long?, itemName: String,
-        quantity: Double, unit: String, rate: Double, paymentMode: PaymentMode,
-        paymentStatus: PaymentStatus, invoiceNumber: String, notes: String
-    ) {
+    fun addExpense(input: ExpenseInput) {
         val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             expenseRepository.addExpense(
                 Expense(
-                    projectId = currentProjectId, date = System.currentTimeMillis(), category = category, type = type,
-                    vendorId = vendorId, itemOrMaterialName = itemName, quantity = quantity, unit = unit, rate = rate,
-                    totalAmount = CalculationEngine.expenseTotal(quantity, rate), paymentMode = paymentMode,
-                    paymentStatus = paymentStatus, invoiceNumber = invoiceNumber, notes = notes
+                    projectId = currentProjectId, date = System.currentTimeMillis(), category = input.category, type = input.type,
+                    vendorId = input.vendorId, itemOrMaterialName = input.itemName, quantity = input.quantity, unit = input.unit, rate = input.rate,
+                    totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate), paymentMode = input.paymentMode,
+                    paymentStatus = input.paymentStatus, invoiceNumber = input.invoiceNumber, notes = input.notes
+                )
+            )
+        }
+    }
+
+    fun updateExpense(original: Expense, input: ExpenseInput) {
+        viewModelScope.launch {
+            expenseRepository.updateExpense(
+                original,
+                original.copy(
+                    category = input.category, type = input.type, vendorId = input.vendorId, itemOrMaterialName = input.itemName,
+                    quantity = input.quantity, unit = input.unit, rate = input.rate,
+                    totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate), paymentMode = input.paymentMode,
+                    paymentStatus = input.paymentStatus, invoiceNumber = input.invoiceNumber, notes = input.notes
                 )
             )
         }
@@ -74,6 +91,7 @@ fun ExpenseScreen(projectId: Long, viewModel: ExpenseViewModel, onBack: () -> Un
     val expenseList by viewModel.expenses.collectAsState()
     val vendorList by viewModel.vendors.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingExpense by remember { mutableStateOf<Expense?>(null) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Expenses") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } }) },
@@ -90,7 +108,14 @@ fun ExpenseScreen(projectId: Long, viewModel: ExpenseViewModel, onBack: () -> Un
                         Column(Modifier.padding(12.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(e.itemOrMaterialName, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { viewModel.deleteExpense(e) }) { Text("Delete") }
+                                Row {
+                                    TextButton(onClick = { editingExpense = e }) {
+                                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Edit")
+                                    }
+                                    TextButton(onClick = { viewModel.deleteExpense(e) }) { Text("Delete") }
+                                }
                             }
                             Text("${e.type.name} • ${e.category.name.replace("_", " ")} • ${e.paymentStatus.name}")
                             Text("${e.quantity} ${e.unit} @ ${formatCurrency(e.rate)} = ${formatCurrency(e.totalAmount)}", fontWeight = FontWeight.Bold)
@@ -103,31 +128,38 @@ fun ExpenseScreen(projectId: Long, viewModel: ExpenseViewModel, onBack: () -> Un
     }
 
     if (showAddDialog) {
-        AddExpenseDialog(vendors = vendorList, onDismiss = { showAddDialog = false }, onSave = { cat, type, vendorId, name, qty, unit, rate, mode, status, inv, notes ->
-            viewModel.addExpense(cat, type, vendorId, name, qty, unit, rate, mode, status, inv, notes)
+        AddEditExpenseDialog(vendors = vendorList, existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
+            viewModel.addExpense(input)
             showAddDialog = false
+        })
+    }
+    editingExpense?.let { expense ->
+        AddEditExpenseDialog(vendors = vendorList, existing = expense, onDismiss = { editingExpense = null }, onSubmit = { input ->
+            viewModel.updateExpense(expense, input)
+            editingExpense = null
         })
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddExpenseDialog(
+private fun AddEditExpenseDialog(
     vendors: List<Vendor>,
+    existing: Expense?,
     onDismiss: () -> Unit,
-    onSave: (CostCategory, ExpenseType, Long?, String, Double, String, Double, PaymentMode, PaymentStatus, String, String) -> Unit
+    onSubmit: (ExpenseInput) -> Unit
 ) {
-    var category by remember { mutableStateOf(CostCategory.CIVIL_STRUCTURAL) }
-    var type by remember { mutableStateOf(ExpenseType.MATERIAL) }
-    var vendorId by remember { mutableStateOf<Long?>(null) }
-    var itemName by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("1") }
-    var unit by remember { mutableStateOf("") }
-    var rate by remember { mutableStateOf("") }
-    var paymentMode by remember { mutableStateOf(PaymentMode.CASH) }
-    var paymentStatus by remember { mutableStateOf(PaymentStatus.PAID) }
-    var invoice by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(existing?.category ?: CostCategory.CIVIL_STRUCTURAL) }
+    var type by remember { mutableStateOf(existing?.type ?: ExpenseType.MATERIAL) }
+    var vendorId by remember { mutableStateOf(existing?.vendorId) }
+    var itemName by remember { mutableStateOf(existing?.itemOrMaterialName ?: "") }
+    var quantity by remember { mutableStateOf(existing?.quantity?.toString() ?: "1") }
+    var unit by remember { mutableStateOf(existing?.unit ?: "") }
+    var rate by remember { mutableStateOf(existing?.rate?.toString() ?: "") }
+    var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.CASH) }
+    var paymentStatus by remember { mutableStateOf(existing?.paymentStatus ?: PaymentStatus.PAID) }
+    var invoice by remember { mutableStateOf(existing?.invoiceNumber ?: "") }
+    var notes by remember { mutableStateOf(existing?.notes ?: "") }
 
     var catMenu by remember { mutableStateOf(false) }
     var typeMenu by remember { mutableStateOf(false) }
@@ -141,7 +173,7 @@ private fun AddExpenseDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add expense") },
+        title = { Text(if (existing == null) "Add expense" else "Edit expense") },
         text = {
             Column {
                 Box {
@@ -203,7 +235,13 @@ private fun AddExpenseDialog(
         confirmButton = {
             TextButton(onClick = {
                 if (itemName.isNotBlank() && qtyD > 0 && rateD >= 0) {
-                    onSave(category, type, if (type == ExpenseType.VENDOR) vendorId else null, itemName, qtyD, unit, rateD, paymentMode, paymentStatus, invoice, notes)
+                    onSubmit(
+                        ExpenseInput(
+                            category = category, type = type, vendorId = if (type == ExpenseType.VENDOR) vendorId else null,
+                            itemName = itemName, quantity = qtyD, unit = unit, rate = rateD, paymentMode = paymentMode,
+                            paymentStatus = paymentStatus, invoiceNumber = invoice, notes = notes
+                        )
+                    )
                 }
             }) { Text("Save") }
         },

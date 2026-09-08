@@ -58,4 +58,13 @@ class AuthRepository(private val db: AppDatabase) {
             ?: return Result.failure(IllegalStateException("Could not create account for $email."))
         return Result.success(created)
     }
+
+    /**
+     * Used for biometric quick sign-in: BiometricPrompt has already proven the person is the
+     * device owner, so this looks up the previously-remembered account by email with no
+     * password check at all — the biometric check *is* the credential here.
+     */
+    suspend fun loginRemembered(email: String): Result<User> =
+        db.userDao().findByEmail(email)?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException("Remembered account no longer exists."))
 }

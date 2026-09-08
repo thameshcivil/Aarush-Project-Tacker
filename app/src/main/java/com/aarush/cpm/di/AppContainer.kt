@@ -13,6 +13,7 @@ class AppContainer(context: Context) {
     private val db: AppDatabase = AppDatabase.getInstance(context)
 
     val authRepository by lazy { AuthRepository(db) }
+    val authPreferencesRepository by lazy { AuthPreferencesRepository(context.applicationContext) }
     val projectRepository by lazy { ProjectRepository(db) }
     val boqRepository by lazy { BOQRepository(db) }
     val materialRepository by lazy { MaterialRepository(db) }

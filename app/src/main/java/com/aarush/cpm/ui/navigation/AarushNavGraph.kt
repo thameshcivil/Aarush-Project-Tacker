@@ -26,6 +26,8 @@ import com.aarush.cpm.ui.dashboard.DashboardScreen
 import com.aarush.cpm.ui.dashboard.DashboardViewModel
 import com.aarush.cpm.ui.expense.ExpenseScreen
 import com.aarush.cpm.ui.expense.ExpenseViewModel
+import com.aarush.cpm.ui.home.HomeScreen
+import com.aarush.cpm.ui.home.HomeViewModel
 import com.aarush.cpm.ui.login.LoginScreen
 import com.aarush.cpm.ui.login.LoginViewModel
 import com.aarush.cpm.ui.payment.ClientPaymentScreen
@@ -43,6 +45,7 @@ import com.aarush.cpm.ui.vendor.VendorViewModel
 
 object Routes {
     const val LOGIN = "login"
+    const val HOME = "home"
     const val DASHBOARD = "dashboard"
     const val CREATE_PROJECT = "create_project"
     const val PROJECT_DETAIL = "project_detail/{projectId}"
@@ -63,7 +66,8 @@ object Routes {
 
 private data class BottomTab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 private val bottomTabs = listOf(
-    BottomTab(Routes.DASHBOARD, "Projects", Icons.Filled.Home),
+    BottomTab(Routes.HOME, "Home", Icons.Filled.Home),
+    BottomTab(Routes.DASHBOARD, "Projects", Icons.Filled.Apartment),
     BottomTab(Routes.SETTINGS, "Settings", Icons.Filled.Settings)
 )
 
@@ -74,7 +78,7 @@ fun AarushNavGraph(appContainer: AppContainer) {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = currentRoute == Routes.DASHBOARD || currentRoute == Routes.SETTINGS
+    val showBottomBar = currentRoute == Routes.HOME || currentRoute == Routes.DASHBOARD || currentRoute == Routes.SETTINGS
 
     Scaffold(
         bottomBar = {
@@ -107,7 +111,17 @@ fun AarushNavGraph(appContainer: AppContainer) {
             composable(Routes.LOGIN) {
                 val vm: LoginViewModel = viewModel(factory = factory)
                 LoginScreen(viewModel = vm, onLoginSuccess = {
-                    navController.navigate(Routes.DASHBOARD) { popUpTo(Routes.LOGIN) { inclusive = true } }
+                    navController.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
+                })
+            }
+            composable(Routes.HOME) {
+                val vm: HomeViewModel = viewModel(factory = factory)
+                HomeScreen(viewModel = vm, onOpenProjects = {
+                    navController.navigate(Routes.DASHBOARD) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 })
             }
             composable(Routes.DASHBOARD) {

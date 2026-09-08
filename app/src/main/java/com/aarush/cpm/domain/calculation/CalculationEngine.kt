@@ -116,6 +116,17 @@ object CalculationEngine {
         return (if (sets <= 0.0) 1.0 else sets) * length.coerceAtLeast(0.0) * effBreadth * effDepth
     }
 
+    /**
+     * Unified BOQ quantity calculator: No. of Member × No Per Member × Length × Breadth ×
+     * Depth. Every factor left blank/zero defaults to 1, so this covers a plain count entry
+     * (just set members, leave the rest at 1), a pure area (length × breadth), or a full
+     * volume (length × breadth × depth) with the same five fields — no separate "mode" needed.
+     */
+    fun boqDimensionalQuantity(members: Double, perMember: Double, length: Double, breadth: Double, depth: Double): Double {
+        fun effective(v: Double) = if (v <= 0.0) 1.0 else v
+        return effective(members) * effective(perMember) * effective(length) * effective(breadth) * effective(depth)
+    }
+
     // ---------- Progress-based completion prediction ----------
     /**
      * Naive linear extrapolation: if X% of work took Y days, project remaining days from

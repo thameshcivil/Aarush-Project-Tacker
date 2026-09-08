@@ -162,4 +162,14 @@ class CalculationEngineTest {
         val length = CalculationEngine.lbdQuantity(sets = 1.0, length = 12.0, breadth = 0.0, depth = 0.0)
         assertThat(length).isEqualTo(12.0)
     }
+
+    @Test
+    fun `boq dimensional quantity defaults blank factors to 1`() {
+        // Pure count entry: 12 doors, everything else left blank
+        val count = CalculationEngine.boqDimensionalQuantity(members = 12.0, perMember = 0.0, length = 0.0, breadth = 0.0, depth = 0.0)
+        assertThat(count).isEqualTo(12.0)
+        // 20 footings, 2 per footing, 3 x 3 x 1.5 each
+        val volume = CalculationEngine.boqDimensionalQuantity(members = 20.0, perMember = 2.0, length = 3.0, breadth = 3.0, depth = 1.5)
+        assertThat(volume).isEqualTo(540.0)
+    }
 }

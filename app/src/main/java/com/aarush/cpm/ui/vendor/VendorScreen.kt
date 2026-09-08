@@ -7,6 +7,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -20,6 +21,7 @@ import com.aarush.cpm.data.entity.VendorRateType
 import com.aarush.cpm.data.entity.VendorWorkCategory
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.data.repository.VendorRepository
+import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +30,11 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+data class VendorInput(
+    val name: String, val contact: String, val workCategory: VendorWorkCategory, val rateType: VendorRateType,
+    val rate: Double, val quantity: Double, val paymentTerms: String, val notes: String
+)
 
 class VendorViewModel(
     private val vendorRepository: VendorRepository,
@@ -43,18 +50,30 @@ class VendorViewModel(
         projectIdFlow.value = projectId
     }
 
-    fun addVendor(
-        name: String, contact: String, workCategory: VendorWorkCategory, rateType: VendorRateType,
-        rate: Double, quantity: Double, paymentTerms: String, notes: String
-    ) {
+    fun addVendor(input: VendorInput) {
         val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             val project = projectRepository.getById(currentProjectId)
             vendorRepository.addVendor(
-                projectId = currentProjectId, name = name, contact = contact, workCategory = workCategory,
-                rateType = rateType, rate = rate, quantity = quantity, projectValue = project?.projectValue ?: 0.0,
+                projectId = currentProjectId, name = input.name, contact = input.contact, workCategory = input.workCategory,
+                rateType = input.rateType, rate = input.rate, quantity = input.quantity, projectValue = project?.projectValue ?: 0.0,
                 startDate = System.currentTimeMillis(), endDate = System.currentTimeMillis(),
-                paymentTerms = paymentTerms, notes = notes
+                paymentTerms = input.paymentTerms, notes = input.notes
+            )
+        }
+    }
+
+    fun updateVendor(original: Vendor, input: VendorInput) {
+        val currentProjectId = projectIdFlow.value ?: return
+        viewModelScope.launch {
+            val project = projectRepository.getById(currentProjectId)
+            val newContractValue = CalculationEngine.vendorContractValue(input.rateType, input.rate, input.quantity, project?.projectValue ?: 0.0)
+            vendorRepository.updateVendor(
+                original.copy(
+                    name = input.name, contact = input.contact, workCategory = input.workCategory, rateType = input.rateType,
+                    rate = input.rate, quantity = input.quantity, contractValue = newContractValue,
+                    paymentTerms = input.paymentTerms, notes = input.notes
+                )
             )
         }
     }
@@ -68,6 +87,7 @@ fun VendorScreen(projectId: Long, viewModel: VendorViewModel, onBack: () -> Unit
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val vendors by viewModel.vendors.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingVendor by remember { mutableStateOf<Vendor?>(null) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Vendors") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } }) },
@@ -85,7 +105,14 @@ fun VendorScreen(projectId: Long, viewModel: VendorViewModel, onBack: () -> Unit
                         Column(Modifier.padding(12.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(v.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { viewModel.deleteVendor(v) }) { Text("Delete") }
+                                Row {
+                                    TextButton(onClick = { editingVendor = v }) {
+                                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Edit")
+                                    }
+                                    TextButton(onClick = { viewModel.deleteVendor(v) }) { Text("Delete") }
+                                }
                             }
                             Text("${v.workCategory.name} • ${v.rateType.name.replace("_", " ")}")
                             Text("Contract: ${formatCurrency(v.contractValue)}  •  Paid: ${formatCurrency(v.amountPaid)}  •  Balance: ${formatCurrency(balance)}", fontWeight = FontWeight.Bold)
@@ -98,33 +125,40 @@ fun VendorScreen(projectId: Long, viewModel: VendorViewModel, onBack: () -> Unit
     }
 
     if (showAddDialog) {
-        AddVendorDialog(onDismiss = { showAddDialog = false }, onSave = { name, contact, wc, rt, rate, qty, terms, notes ->
-            viewModel.addVendor(name, contact, wc, rt, rate, qty, terms, notes)
+        AddEditVendorDialog(existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
+            viewModel.addVendor(input)
             showAddDialog = false
+        })
+    }
+    editingVendor?.let { vendor ->
+        AddEditVendorDialog(existing = vendor, onDismiss = { editingVendor = null }, onSubmit = { input ->
+            viewModel.updateVendor(vendor, input)
+            editingVendor = null
         })
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddVendorDialog(
+private fun AddEditVendorDialog(
+    existing: Vendor?,
     onDismiss: () -> Unit,
-    onSave: (String, String, VendorWorkCategory, VendorRateType, Double, Double, String, String) -> Unit
+    onSubmit: (VendorInput) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var contact by remember { mutableStateOf("") }
-    var workCategory by remember { mutableStateOf(VendorWorkCategory.CIVIL) }
-    var rateType by remember { mutableStateOf(VendorRateType.PER_SQFT) }
-    var rate by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("") }
-    var terms by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    var contact by remember { mutableStateOf(existing?.contact ?: "") }
+    var workCategory by remember { mutableStateOf(existing?.workCategory ?: VendorWorkCategory.CIVIL) }
+    var rateType by remember { mutableStateOf(existing?.rateType ?: VendorRateType.PER_SQFT) }
+    var rate by remember { mutableStateOf(existing?.rate?.takeIf { it != 0.0 }?.toString() ?: "") }
+    var quantity by remember { mutableStateOf(existing?.quantity?.takeIf { it != 0.0 }?.toString() ?: "") }
+    var terms by remember { mutableStateOf(existing?.paymentTerms ?: "") }
+    var notes by remember { mutableStateOf(existing?.notes ?: "") }
     var wcMenu by remember { mutableStateOf(false) }
     var rtMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add vendor") },
+        title = { Text(if (existing == null) "Add vendor" else "Edit vendor") },
         text = {
             Column {
                 OutlinedTextField(name, { name = it }, label = { Text("Vendor name") }, modifier = Modifier.fillMaxWidth())
@@ -158,7 +192,7 @@ private fun AddVendorDialog(
             TextButton(onClick = {
                 val r = rate.toDoubleOrNull() ?: 0.0
                 val q = quantity.toDoubleOrNull() ?: 0.0
-                if (name.isNotBlank()) onSave(name, contact, workCategory, rateType, r, q, terms, notes)
+                if (name.isNotBlank()) onSubmit(VendorInput(name, contact, workCategory, rateType, r, q, terms, notes))
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

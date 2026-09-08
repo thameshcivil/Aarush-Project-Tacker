@@ -34,7 +34,7 @@ import com.aarush.cpm.data.entity.*
         BOQNotation::class,
         MaterialRateCard::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -122,6 +122,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v3 → v4: adds boq_items.perMember for the unified "No. of Member × No Per Member
+         *  × L × B × D" quantity calculator (replaces the old Nos-vs-LBD toggle). The old
+         *  quantityMode column is left in place, unused — dropping columns needs a table
+         *  rebuild in SQLite and there's nothing to gain by doing that here. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN perMember REAL NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -129,7 +139,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aarush_cpm.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { INSTANCE = it }
             }
     }

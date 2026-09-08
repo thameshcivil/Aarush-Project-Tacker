@@ -121,6 +121,7 @@ data class MaterialStatusRow(
 
 class VendorRepository(private val db: AppDatabase) {
     fun observeForProject(projectId: Long): Flow<List<Vendor>> = db.vendorDao().observeForProject(projectId)
+    suspend fun getForProject(projectId: Long): List<Vendor> = db.vendorDao().getForProject(projectId)
 
     suspend fun addVendor(
         projectId: Long, name: String, contact: String, workCategory: VendorWorkCategory,
@@ -145,6 +146,7 @@ class ClientPaymentRepository(private val db: AppDatabase) {
     fun observeForProject(projectId: Long): Flow<List<ClientPayment>> = db.clientPaymentDao().observeForProject(projectId)
     fun observeTotalReceived(projectId: Long): Flow<Double> = db.clientPaymentDao().observeTotalReceived(projectId)
     suspend fun addPayment(payment: ClientPayment): Long = db.clientPaymentDao().insert(payment)
+    suspend fun updatePayment(payment: ClientPayment) = db.clientPaymentDao().update(payment)
     suspend fun deletePayment(payment: ClientPayment) = db.clientPaymentDao().delete(payment)
 }
 

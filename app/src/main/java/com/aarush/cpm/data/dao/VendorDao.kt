@@ -18,6 +18,9 @@ interface VendorDao {
     @Query("SELECT * FROM vendors WHERE projectId = :projectId ORDER BY name")
     fun observeForProject(projectId: Long): Flow<List<Vendor>>
 
+    @Query("SELECT * FROM vendors WHERE projectId = :projectId ORDER BY name")
+    suspend fun getForProject(projectId: Long): List<Vendor>
+
     @Query("SELECT * FROM vendors WHERE id = :id")
     suspend fun getById(id: Long): Vendor?
 }

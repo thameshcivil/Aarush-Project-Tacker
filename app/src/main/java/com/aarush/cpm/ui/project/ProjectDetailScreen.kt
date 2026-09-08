@@ -235,6 +235,7 @@ private fun AreaRateBreakdownDialog(
     onUpdate: (ProjectAreaComponent, String, Double, Double) -> Unit,
     onDelete: (ProjectAreaComponent) -> Unit
 ) {
+    var showAddForm by remember { mutableStateOf(false) }
     var newLabel by remember { mutableStateOf("") }
     var newArea by remember { mutableStateOf("") }
     var newRate by remember { mutableStateOf("") }
@@ -243,37 +244,45 @@ private fun AreaRateBreakdownDialog(
         onDismissRequest = onDismiss,
         title = { Text("Area & Rate Breakdown") },
         text = {
-            Column(Modifier.heightIn(max = 420.dp)) {
+            Column(Modifier.heightIn(max = 460.dp)) {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
                     items(components, key = { it.id }) { comp ->
                         AreaRateEditableRow(component = comp, onUpdate = onUpdate, onDelete = onDelete)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Add a row", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                OutlinedTextField(newLabel, { newLabel = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                Row {
-                    OutlinedTextField(newArea, { newArea = it }, label = { Text("Area (sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
-                    Spacer(Modifier.width(6.dp))
-                    OutlinedTextField(newRate, { newRate = it }, label = { Text("Rate (₹/sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = {
-                        val area = newArea.toDoubleOrNull() ?: 0.0
-                        val rate = newRate.toDoubleOrNull() ?: 0.0
-                        if (area > 0 && rate > 0) {
-                            onAdd(newLabel.ifBlank { "Area" }, area, rate)
-                            newLabel = ""; newArea = ""; newRate = ""
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add row")
+                if (!showAddForm) {
+                    OutlinedButton(onClick = { showAddForm = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add item")
+                    }
+                } else {
+                    Text("New item", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(newLabel, { newLabel = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(6.dp))
+                    Row {
+                        OutlinedTextField(newArea, { newArea = it }, label = { Text("Area (sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(6.dp))
+                        OutlinedTextField(newRate, { newRate = it }, label = { Text("Rate (₹/sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { showAddForm = false; newLabel = ""; newArea = ""; newRate = "" }, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                        Button(
+                            onClick = {
+                                val area = newArea.toDoubleOrNull() ?: 0.0
+                                val rate = newRate.toDoubleOrNull() ?: 0.0
+                                if (area > 0 && rate > 0) {
+                                    onAdd(newLabel.ifBlank { "Area" }, area, rate)
+                                    newLabel = ""; newArea = ""; newRate = ""
+                                    showAddForm = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Add") }
+                    }
                 }
             }
         },

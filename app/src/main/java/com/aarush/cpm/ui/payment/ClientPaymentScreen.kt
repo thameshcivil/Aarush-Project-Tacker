@@ -7,6 +7,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,6 +25,8 @@ import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+data class ClientPaymentInput(val amount: Double, val mode: PaymentMode, val reference: String, val notes: String)
 
 class ClientPaymentViewModel(
     private val paymentRepository: ClientPaymentRepository,
@@ -47,11 +50,19 @@ class ClientPaymentViewModel(
         viewModelScope.launch { _project.value = projectRepository.getById(projectId) }
     }
 
-    fun addPayment(amount: Double, mode: PaymentMode, reference: String, notes: String) {
+    fun addPayment(input: ClientPaymentInput) {
         val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             paymentRepository.addPayment(
-                ClientPayment(projectId = currentProjectId, date = System.currentTimeMillis(), amountReceived = amount, paymentMode = mode, referenceNumber = reference, notes = notes)
+                ClientPayment(projectId = currentProjectId, date = System.currentTimeMillis(), amountReceived = input.amount, paymentMode = input.mode, referenceNumber = input.reference, notes = input.notes)
+            )
+        }
+    }
+
+    fun updatePayment(original: ClientPayment, input: ClientPaymentInput) {
+        viewModelScope.launch {
+            paymentRepository.updatePayment(
+                original.copy(amountReceived = input.amount, paymentMode = input.mode, referenceNumber = input.reference, notes = input.notes)
             )
         }
     }
@@ -67,6 +78,7 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
     val totalReceived by viewModel.totalReceived.collectAsState()
     val project by viewModel.project.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingPayment by remember { mutableStateOf<ClientPayment?>(null) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Client Payments") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } }) },
@@ -92,7 +104,14 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
                             Column(Modifier.padding(12.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(formatCurrency(pay.amountReceived), fontWeight = FontWeight.Bold)
-                                    TextButton(onClick = { viewModel.deletePayment(pay) }) { Text("Delete") }
+                                    Row {
+                                        TextButton(onClick = { editingPayment = pay }) {
+                                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Edit")
+                                        }
+                                        TextButton(onClick = { viewModel.deletePayment(pay) }) { Text("Delete") }
+                                    }
                                 }
                                 Text("${pay.paymentMode.name} • Ref: ${pay.referenceNumber.ifBlank { "-" }}")
                             }
@@ -105,25 +124,31 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
     }
 
     if (showAddDialog) {
-        AddPaymentDialog(onDismiss = { showAddDialog = false }, onSave = { amount, mode, ref, notes ->
-            viewModel.addPayment(amount, mode, ref, notes)
+        AddEditPaymentDialog(existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
+            viewModel.addPayment(input)
             showAddDialog = false
+        })
+    }
+    editingPayment?.let { payment ->
+        AddEditPaymentDialog(existing = payment, onDismiss = { editingPayment = null }, onSubmit = { input ->
+            viewModel.updatePayment(payment, input)
+            editingPayment = null
         })
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddPaymentDialog(onDismiss: () -> Unit, onSave: (Double, PaymentMode, String, String) -> Unit) {
-    var amount by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf(PaymentMode.BANK_TRANSFER) }
-    var reference by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+private fun AddEditPaymentDialog(existing: ClientPayment?, onDismiss: () -> Unit, onSubmit: (ClientPaymentInput) -> Unit) {
+    var amount by remember { mutableStateOf(existing?.amountReceived?.toString() ?: "") }
+    var mode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.BANK_TRANSFER) }
+    var reference by remember { mutableStateOf(existing?.referenceNumber ?: "") }
+    var notes by remember { mutableStateOf(existing?.notes ?: "") }
     var modeMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add client payment") },
+        title = { Text(if (existing == null) "Add client payment" else "Edit client payment") },
         text = {
             Column {
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount received (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
@@ -143,7 +168,7 @@ private fun AddPaymentDialog(onDismiss: () -> Unit, onSave: (Double, PaymentMode
         confirmButton = {
             TextButton(onClick = {
                 val a = amount.toDoubleOrNull() ?: 0.0
-                if (a > 0) onSave(a, mode, reference, notes)
+                if (a > 0) onSubmit(ClientPaymentInput(a, mode, reference, notes))
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

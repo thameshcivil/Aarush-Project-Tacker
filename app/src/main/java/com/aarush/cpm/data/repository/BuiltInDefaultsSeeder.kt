@@ -26,18 +26,18 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
     )
 
     private val notationRows = listOf(
-        NotationRow("Ex", "Excavation", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
-        NotationRow("PCC", "Plain Cement Concrete", "Cft", 0.123, 0.0, 0.462, 0.0, 0.924),
-        NotationRow("RCC", "Reinforced Cement Concrete", "Cft", 0.246, 0.0, 0.462, 0.0, 0.924),
-        NotationRow("BW", "9\" Brick work", "Cft", 0.03, 0.0, 0.225, 13.5, 0.0),
-        NotationRow("PBW", "4.5\" Brick work", "Sqft", 0.012, 0.0, 0.09, 5.5, 0.0),
-        NotationRow("BF", "Back Filling", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
-        NotationRow("Tile", "Tile Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
-        NotationRow("Dado", "Wall Dado Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
-        NotationRow("SKT", "Skirting Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
-        NotationRow("GL", "Granite Laying", "Sqft", 0.004, 0.0, 0.027, 0.0, 0.0),
-        NotationRow("IPL", "Internal Plastering", "Sqft", 0.0045, 0.034, 0.0, 0.0, 0.0),
-        NotationRow("EPL", "External Plastering", "Sqft", 0.0078, 0.039, 0.0, 0.0, 0.0)
+        NotationRow("001-Excavation", "Excavation", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
+        NotationRow("002-Plain Cement Concrete", "Plain Cement Concrete", "Cft", 0.123, 0.0, 0.462, 0.0, 0.924),
+        NotationRow("003-Reinforced Cement Concrete", "Reinforced Cement Concrete", "Cft", 0.246, 0.0, 0.462, 0.0, 0.924),
+        NotationRow("004-9\" Brick work", "9\" Brick work", "Cft", 0.03, 0.0, 0.225, 13.5, 0.0),
+        NotationRow("005-4.5\" Brick work", "4.5\" Brick work", "Sqft", 0.012, 0.0, 0.09, 5.5, 0.0),
+        NotationRow("006-Back Filling", "Back Filling", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
+        NotationRow("007-Tile Laying", "Tile Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
+        NotationRow("008-Wall Dado Laying", "Wall Dado Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
+        NotationRow("009-Skirting Laying", "Skirting Laying", "Sqft", 0.003, 0.0, 0.02, 0.0, 0.0),
+        NotationRow("010-Granite Laying", "Granite Laying", "Sqft", 0.004, 0.0, 0.027, 0.0, 0.0),
+        NotationRow("011-Internal Plastering", "Internal Plastering", "Sqft", 0.0045, 0.034, 0.0, 0.0, 0.0),
+        NotationRow("012-External Plastering", "External Plastering", "Sqft", 0.0078, 0.039, 0.0, 0.0, 0.0)
     )
 
     private data class RateRow(val description: String, val unit: String, val rate: Double)
