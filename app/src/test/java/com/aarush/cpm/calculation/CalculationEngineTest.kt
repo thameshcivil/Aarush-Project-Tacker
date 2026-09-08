@@ -145,4 +145,21 @@ class CalculationEngineTest {
         val remaining = CalculationEngine.predictedCompletionDaysRemaining(progressPercent = 25.0, daysElapsed = 30)
         assertThat(remaining).isEqualTo(90)
     }
+
+    @Test
+    fun `lbd quantity multiplies sets by dimensions`() {
+        // 20 footings, 3ft x 3ft x 1.5ft each
+        val qty = CalculationEngine.lbdQuantity(sets = 20.0, length = 3.0, breadth = 3.0, depth = 1.5)
+        assertThat(qty).isEqualTo(270.0)
+    }
+
+    @Test
+    fun `lbd quantity treats missing breadth or depth as area or length only`() {
+        // Plastering entered as length x breadth only (no depth) -> area
+        val area = CalculationEngine.lbdQuantity(sets = 1.0, length = 10.0, breadth = 8.0, depth = 0.0)
+        assertThat(area).isEqualTo(80.0)
+        // A single length-only entry -> just the length
+        val length = CalculationEngine.lbdQuantity(sets = 1.0, length = 12.0, breadth = 0.0, depth = 0.0)
+        assertThat(length).isEqualTo(12.0)
+    }
 }

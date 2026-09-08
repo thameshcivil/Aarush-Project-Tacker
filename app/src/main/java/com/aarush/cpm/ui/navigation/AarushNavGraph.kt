@@ -36,6 +36,8 @@ import com.aarush.cpm.ui.project.ProjectDetailScreen
 import com.aarush.cpm.ui.project.ProjectDetailViewModel
 import com.aarush.cpm.ui.settings.SettingsScreen
 import com.aarush.cpm.ui.settings.SettingsViewModel
+import com.aarush.cpm.ui.settings.ProjectSettingsScreen
+import com.aarush.cpm.ui.settings.ProjectSettingsViewModel
 import com.aarush.cpm.ui.vendor.VendorScreen
 import com.aarush.cpm.ui.vendor.VendorViewModel
 
@@ -48,6 +50,7 @@ object Routes {
     const val EXPENSES = "expenses/{projectId}"
     const val VENDORS = "vendors/{projectId}"
     const val CLIENT_PAYMENTS = "client_payments/{projectId}"
+    const val PROJECT_SETTINGS = "project_settings/{projectId}"
     const val SETTINGS = "settings"
 
     fun projectDetail(id: Long) = "project_detail/$id"
@@ -55,6 +58,7 @@ object Routes {
     fun expenses(id: Long) = "expenses/$id"
     fun vendors(id: Long) = "vendors/$id"
     fun clientPayments(id: Long) = "client_payments/$id"
+    fun projectSettings(id: Long) = "project_settings/$id"
 }
 
 private data class BottomTab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -137,7 +141,8 @@ fun AarushNavGraph(appContainer: AppContainer) {
                     onOpenBOQ = { navController.navigate(Routes.boq(projectId)) },
                     onOpenExpenses = { navController.navigate(Routes.expenses(projectId)) },
                     onOpenVendors = { navController.navigate(Routes.vendors(projectId)) },
-                    onOpenClientPayments = { navController.navigate(Routes.clientPayments(projectId)) }
+                    onOpenClientPayments = { navController.navigate(Routes.clientPayments(projectId)) },
+                    onOpenSettings = { navController.navigate(Routes.projectSettings(projectId)) }
                 )
             }
             composable(
@@ -175,6 +180,14 @@ fun AarushNavGraph(appContainer: AppContainer) {
             composable(Routes.SETTINGS) {
                 val vm: SettingsViewModel = viewModel(factory = factory)
                 SettingsScreen(viewModel = vm)
+            }
+            composable(
+                Routes.PROJECT_SETTINGS,
+                arguments = listOf(navArgument("projectId") { type = NavType.LongType })
+            ) { entry ->
+                val projectId = entry.arguments?.getLong("projectId") ?: 0L
+                val vm: ProjectSettingsViewModel = viewModel(factory = factory)
+                ProjectSettingsScreen(projectId = projectId, viewModel = vm, onBack = { navController.popBackStack() })
             }
         }
     }

@@ -18,7 +18,7 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 com.aarush.cpm.ui.dashboard.DashboardViewModel(container.projectRepository, container.projectSummaryRepository, container.sampleDataSeeder) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.project.CreateProjectViewModel::class.java) ->
-                com.aarush.cpm.ui.project.CreateProjectViewModel(container.projectRepository) as T
+                com.aarush.cpm.ui.project.CreateProjectViewModel(container.projectRepository, container.builtInDefaultsSeeder) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.project.ProjectDetailViewModel::class.java) ->
                 com.aarush.cpm.ui.project.ProjectDetailViewModel(
@@ -40,6 +40,9 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.settings.SettingsViewModel::class.java) ->
                 com.aarush.cpm.ui.settings.SettingsViewModel(container.sampleDataSeeder) as T
+
+            modelClass.isAssignableFrom(com.aarush.cpm.ui.settings.ProjectSettingsViewModel::class.java) ->
+                com.aarush.cpm.ui.settings.ProjectSettingsViewModel(container.boqRepository, container.materialRepository) as T
 
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

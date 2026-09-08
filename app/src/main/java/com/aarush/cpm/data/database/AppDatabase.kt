@@ -30,9 +30,11 @@ import com.aarush.cpm.data.entity.*
         ProjectProgress::class,
         AppNotification::class,
         AppSettings::class,
-        ProjectAreaComponent::class
+        ProjectAreaComponent::class,
+        BOQNotation::class,
+        MaterialRateCard::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -57,6 +59,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun userDao(): UserDao
     abstract fun projectAreaComponentDao(): ProjectAreaComponentDao
+    abstract fun boqNotationDao(): BOQNotationDao
+    abstract fun materialRateCardDao(): MaterialRateCardDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -83,6 +87,41 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v2 → v3: adds boq_notations (the item-code dropdown source) and material_rates
+         *  (the editable built-in rate card), plus five new columns on boq_items for the
+         *  Nos-vs-L×B×D quantity entry mode. All additive, no data loss. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS boq_notations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        projectId INTEGER NOT NULL,
+                        code TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        defaultUnit TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS material_rates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        projectId INTEGER NOT NULL,
+                        description TEXT NOT NULL,
+                        unit TEXT NOT NULL,
+                        rate REAL NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN quantityMode TEXT NOT NULL DEFAULT 'NOS'")
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN sets REAL NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN length REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN breadth REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE boq_items ADD COLUMN depth REAL NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -90,7 +129,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aarush_cpm.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { INSTANCE = it }
             }
     }

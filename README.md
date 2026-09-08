@@ -204,6 +204,21 @@ analytics.
   Residence at one ₹/sqft rate, Staircase at another) instead of a single blended
   area × rate. Existing single-area projects still work identically — a project is just
   the special case of one row.
+- The area/rate breakdown moved off the Project Detail screen's scrolling list — tap the
+  header card (Client/Location/Area/Value) to view and edit it in a popup instead.
+- "Quick actions" (BOQ/Expenses/Vendors/Payments) is now a bottom tab bar on the Project
+  Detail screen, alongside a new **Settings** tab.
+- Added a per-project **Settings** screen with two editable tables: a built-in BOQ
+  notation/coefficient reference (Excavation, PCC, RCC, Brick work, plastering, tiling,
+  etc. — each with Cement/P.Sand/M.Sand/Bricks/20mm Aggregate coefficients) and a
+  material rate card (Cement, Sand, Steel, Tiles, Painting, etc.). Both are seeded with
+  sensible defaults on every new project and fully editable/addable afterward.
+- BOQ item codes are now picked from a dropdown of those notations — selecting one
+  auto-fills description, unit, and links the coefficient engine automatically.
+- BOQ quantity entry now supports two modes: **Nos** (a typed count) or **L × B × D**
+  (sets × length × breadth × depth), with the resulting quantity calculated automatically
+  instead of typed by hand.
+- BOQ list items are now collapsible/expandable — tap a row to see full details.
 
 ## Contributing
 

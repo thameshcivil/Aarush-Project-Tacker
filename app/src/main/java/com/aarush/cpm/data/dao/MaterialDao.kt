@@ -47,6 +47,9 @@ interface MaterialCoefficientDao {
 
     @Query("SELECT * FROM material_coefficients WHERE projectId = :projectId AND workItemKey = :workItemKey")
     suspend fun getForWorkItem(projectId: Long, workItemKey: String): List<MaterialCoefficient>
+
+    @Query("DELETE FROM material_coefficients WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }
 
 @Dao

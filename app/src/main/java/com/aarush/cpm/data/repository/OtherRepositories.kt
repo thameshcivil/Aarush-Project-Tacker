@@ -13,6 +13,20 @@ class BOQRepository(private val db: AppDatabase) {
     suspend fun addItems(items: List<BOQItem>) = db.boqDao().insertAll(items)
     suspend fun updateItem(item: BOQItem) = db.boqDao().update(item)
     suspend fun deleteItem(item: BOQItem) = db.boqDao().delete(item)
+
+    // --- BOQ notation dropdown (linked item-code list) ---
+    fun observeNotations(projectId: Long): Flow<List<BOQNotation>> = db.boqNotationDao().observeForProject(projectId)
+    suspend fun getNotations(projectId: Long): List<BOQNotation> = db.boqNotationDao().getForProject(projectId)
+
+    /** Full replace-all save for the project's Settings screen: the notation list and its
+     *  per-material coefficients are edited together as one table, so they're saved together —
+     *  simpler and safer than diffing individual row edits/inserts/deletes. */
+    suspend fun replaceNotationsAndCoefficients(projectId: Long, notations: List<BOQNotation>, coefficients: List<MaterialCoefficient>) {
+        db.boqNotationDao().deleteForProject(projectId)
+        db.materialCoefficientDao().deleteForProject(projectId)
+        db.boqNotationDao().insertAll(notations)
+        db.materialCoefficientDao().insertAll(coefficients)
+    }
 }
 
 /** Section 11/12: material master, coefficients, and derived requirement/stock/balance figures. */
@@ -22,12 +36,25 @@ class MaterialRepository(private val db: AppDatabase) {
 
     fun observeCoefficients(projectId: Long): Flow<List<MaterialCoefficient>> =
         db.materialCoefficientDao().observeForProject(projectId)
+    suspend fun getCoefficients(projectId: Long): List<MaterialCoefficient> =
+        db.materialCoefficientDao().getForProject(projectId)
     suspend fun addCoefficient(coefficient: MaterialCoefficient): Long = db.materialCoefficientDao().insert(coefficient)
     suspend fun updateCoefficient(coefficient: MaterialCoefficient) = db.materialCoefficientDao().update(coefficient)
 
     fun observePurchases(projectId: Long): Flow<List<MaterialPurchase>> = db.materialPurchaseDao().observeForProject(projectId)
     fun observeUsages(projectId: Long): Flow<List<MaterialUsage>> = db.materialUsageDao().observeForProject(projectId)
     suspend fun addUsage(usage: MaterialUsage): Long = db.materialUsageDao().insert(usage)
+
+    // --- Material rate card (editable per-project budget reference) ---
+    fun observeMaterialRates(projectId: Long): Flow<List<MaterialRateCard>> = db.materialRateCardDao().observeForProject(projectId)
+    suspend fun getMaterialRates(projectId: Long): List<MaterialRateCard> = db.materialRateCardDao().getForProject(projectId)
+
+    /** Full replace-all save for the project's Settings screen — see BOQRepository's
+     *  equivalent for notations/coefficients; same reasoning applies here. */
+    suspend fun replaceMaterialRates(projectId: Long, rates: List<MaterialRateCard>) {
+        db.materialRateCardDao().deleteForProject(projectId)
+        db.materialRateCardDao().insertAll(rates)
+    }
 
     /**
      * Rolls up, per material name: required (from BOQ x coefficient + waste), purchased,

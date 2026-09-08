@@ -3,13 +3,15 @@ package com.aarush.cpm.ui.project
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -45,22 +47,57 @@ class ProjectDetailViewModel(
 
     private val _uiState = MutableStateFlow(ProjectDetailUiState())
     val uiState: StateFlow<ProjectDetailUiState> = _uiState.asStateFlow()
+    private var currentProjectId: Long = 0L
 
     fun load(projectId: Long) {
+        currentProjectId = projectId
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
-            val summary = summaryRepository.buildSummary(projectId)
-            val materials = materialRepository.materialStatus(projectId)
-            val areaComponents = projectRepository.getAreaComponents(projectId)
-            val daysRemaining = summary?.project?.expectedCompletionDate?.let {
-                TimeUnit.MILLISECONDS.toDays(it - System.currentTimeMillis())
-            }
-            _uiState.value = ProjectDetailUiState(
-                summary = summary, materialStatus = materials, areaComponents = areaComponents,
-                daysRemaining = daysRemaining, isLoading = false
-            )
+            refresh()
         }
     }
+
+    private suspend fun refresh() {
+        val summary = summaryRepository.buildSummary(currentProjectId)
+        val materials = materialRepository.materialStatus(currentProjectId)
+        val areaComponents = projectRepository.getAreaComponents(currentProjectId)
+        val daysRemaining = summary?.project?.expectedCompletionDate?.let {
+            TimeUnit.MILLISECONDS.toDays(it - System.currentTimeMillis())
+        }
+        _uiState.value = ProjectDetailUiState(
+            summary = summary, materialStatus = materials, areaComponents = areaComponents,
+            daysRemaining = daysRemaining, isLoading = false
+        )
+    }
+
+    fun addAreaComponent(label: String, area: Double, rate: Double) {
+        viewModelScope.launch {
+            projectRepository.addAreaComponent(currentProjectId, label, area, rate)
+            refresh()
+        }
+    }
+
+    fun updateAreaComponent(component: ProjectAreaComponent, label: String, area: Double, rate: Double) {
+        viewModelScope.launch {
+            projectRepository.updateAreaComponent(component.copy(label = label, areaSqft = area, ratePerSqft = rate))
+            refresh()
+        }
+    }
+
+    fun deleteAreaComponent(component: ProjectAreaComponent) {
+        viewModelScope.launch {
+            projectRepository.deleteAreaComponent(component)
+            refresh()
+        }
+    }
+}
+
+private sealed class ProjectTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    data object BOQ : ProjectTab("BOQ", Icons.Filled.ListAlt)
+    data object Expenses : ProjectTab("Expenses", Icons.Filled.Receipt)
+    data object Vendors : ProjectTab("Vendors", Icons.Filled.Engineering)
+    data object Payments : ProjectTab("Payments", Icons.Filled.Payments)
+    data object Settings : ProjectTab("Settings", Icons.Filled.Tune)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,17 +109,43 @@ fun ProjectDetailScreen(
     onOpenBOQ: () -> Unit,
     onOpenExpenses: () -> Unit,
     onOpenVendors: () -> Unit,
-    onOpenClientPayments: () -> Unit
+    onOpenClientPayments: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val state by viewModel.uiState.collectAsState()
+    var showAreaDialog by remember { mutableStateOf(false) }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(state.summary?.project?.name ?: "Project") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
-        )
-    }) { padding ->
+    val tabs = listOf(ProjectTab.BOQ, ProjectTab.Expenses, ProjectTab.Vendors, ProjectTab.Payments, ProjectTab.Settings)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(state.summary?.project?.name ?: "Project") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = {
+                            when (tab) {
+                                ProjectTab.BOQ -> onOpenBOQ()
+                                ProjectTab.Expenses -> onOpenExpenses()
+                                ProjectTab.Vendors -> onOpenVendors()
+                                ProjectTab.Payments -> onOpenClientPayments()
+                                ProjectTab.Settings -> onOpenSettings()
+                            }
+                        },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) }
+                    )
+                }
+            }
+        }
+    ) { padding ->
         if (state.isLoading || state.summary == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@Scaffold
@@ -92,37 +155,19 @@ fun ProjectDetailScreen(
 
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Card {
+                Card(onClick = { showAreaDialog = true }) {
                     Column(Modifier.padding(16.dp)) {
                         Text("Client: ${p.clientName}", style = MaterialTheme.typography.bodyMedium)
                         Text("Location: ${p.location}", style = MaterialTheme.typography.bodyMedium)
                         Text("Area: ${formatQuantity(p.plinthAreaSqft, "sqft")}  •  Rate: ${formatCurrency(p.ratePerSqft)}/sqft", style = MaterialTheme.typography.bodyMedium)
                         Text("Project Value: ${formatCurrency(p.projectValue)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Tap to view / edit area & rate breakdown", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
             item {
                 LazyRowStats(summary = summary, daysRemaining = state.daysRemaining)
-            }
-            if (state.areaComponents.size > 1) {
-                item { Text("Area & Rate Breakdown", style = MaterialTheme.typography.titleSmall) }
-                items(state.areaComponents) { comp ->
-                    Card {
-                        Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(comp.label, fontWeight = FontWeight.SemiBold)
-                            Text("${formatQuantity(comp.areaSqft, "sqft")} @ ${formatCurrency(comp.ratePerSqft)} = ${formatCurrency(comp.areaSqft * comp.ratePerSqft)}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-            item { Text("Quick actions", style = MaterialTheme.typography.titleSmall) }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onOpenBOQ) { Text("BOQ") }
-                    OutlinedButton(onClick = onOpenExpenses) { Text("Expenses") }
-                    OutlinedButton(onClick = onOpenVendors) { Text("Vendors") }
-                    OutlinedButton(onClick = onOpenClientPayments) { Text("Payments") }
-                }
             }
             item { Text("Budget vs Actual", style = MaterialTheme.typography.titleSmall) }
             items(summary.categories) { cat ->
@@ -166,7 +211,116 @@ fun ProjectDetailScreen(
                     }
                 }
             }
-            item { Spacer(Modifier.height(48.dp)) }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+
+    if (showAreaDialog) {
+        AreaRateBreakdownDialog(
+            components = state.areaComponents,
+            onDismiss = { showAreaDialog = false },
+            onAdd = { label, area, rate -> viewModel.addAreaComponent(label, area, rate) },
+            onUpdate = { comp, label, area, rate -> viewModel.updateAreaComponent(comp, label, area, rate) },
+            onDelete = { comp -> viewModel.deleteAreaComponent(comp) }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AreaRateBreakdownDialog(
+    components: List<ProjectAreaComponent>,
+    onDismiss: () -> Unit,
+    onAdd: (String, Double, Double) -> Unit,
+    onUpdate: (ProjectAreaComponent, String, Double, Double) -> Unit,
+    onDelete: (ProjectAreaComponent) -> Unit
+) {
+    var newLabel by remember { mutableStateOf("") }
+    var newArea by remember { mutableStateOf("") }
+    var newRate by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Area & Rate Breakdown") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
+                    items(components, key = { it.id }) { comp ->
+                        AreaRateEditableRow(component = comp, onUpdate = onUpdate, onDelete = onDelete)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Add a row", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(newLabel, { newLabel = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    OutlinedTextField(newArea, { newArea = it }, label = { Text("Area (sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(6.dp))
+                    OutlinedTextField(newRate, { newRate = it }, label = { Text("Rate (₹/sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = {
+                        val area = newArea.toDoubleOrNull() ?: 0.0
+                        val rate = newRate.toDoubleOrNull() ?: 0.0
+                        if (area > 0 && rate > 0) {
+                            onAdd(newLabel.ifBlank { "Area" }, area, rate)
+                            newLabel = ""; newArea = ""; newRate = ""
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Add row")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+@Composable
+private fun AreaRateEditableRow(
+    component: ProjectAreaComponent,
+    onUpdate: (ProjectAreaComponent, String, Double, Double) -> Unit,
+    onDelete: (ProjectAreaComponent) -> Unit
+) {
+    var label by remember(component.id) { mutableStateOf(component.label) }
+    var area by remember(component.id) { mutableStateOf(if (component.areaSqft == 0.0) "" else "%.2f".format(component.areaSqft)) }
+    var rate by remember(component.id) { mutableStateOf(if (component.ratePerSqft == 0.0) "" else "%.2f".format(component.ratePerSqft)) }
+
+    Card {
+        Column(Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    label, { label = it }, label = { Text("Label") }, singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { onDelete(component) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row {
+                OutlinedTextField(
+                    area, { area = it }, label = { Text("Area (sqft)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(6.dp))
+                OutlinedTextField(
+                    rate, { rate = it }, label = { Text("Rate (₹/sqft)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                val a = area.toDoubleOrNull() ?: 0.0
+                val r = rate.toDoubleOrNull() ?: 0.0
+                Text("Subtotal: ${formatCurrency(CalculationEngine.projectValue(a, r))}", style = MaterialTheme.typography.labelSmall)
+                TextButton(onClick = { onUpdate(component, label, a, r) }) { Text("Save") }
+            }
         }
     }
 }

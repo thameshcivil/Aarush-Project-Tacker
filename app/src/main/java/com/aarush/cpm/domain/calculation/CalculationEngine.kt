@@ -104,6 +104,18 @@ object CalculationEngine {
     fun labourShortage(requiredCount: Int, availableCount: Int): Int =
         (requiredCount - availableCount).coerceAtLeast(0)
 
+    /**
+     * BOQ quantity from dimensions ("L×B×D" entry mode) instead of a typed Nos count.
+     * `sets` lets the same dimensions repeat (e.g. 20 identical footings). A depth or
+     * breadth of 0 means "not applicable to this item" (e.g. a plastering job entered as
+     * just length × breadth) rather than zeroing the whole quantity, so it's treated as 1.
+     */
+    fun lbdQuantity(sets: Double, length: Double, breadth: Double, depth: Double): Double {
+        val effBreadth = if (breadth <= 0.0) 1.0 else breadth
+        val effDepth = if (depth <= 0.0) 1.0 else depth
+        return (if (sets <= 0.0) 1.0 else sets) * length.coerceAtLeast(0.0) * effBreadth * effDepth
+    }
+
     // ---------- Progress-based completion prediction ----------
     /**
      * Naive linear extrapolation: if X% of work took Y days, project remaining days from

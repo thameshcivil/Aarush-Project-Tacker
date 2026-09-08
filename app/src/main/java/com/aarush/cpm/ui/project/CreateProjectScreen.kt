@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.repository.AreaRateComponent
+import com.aarush.cpm.data.repository.BuiltInDefaultsSeeder
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
@@ -59,7 +60,10 @@ data class CreateProjectUiState(
         get() = if (useManualOverride) (manualOverrideValue.toDoubleOrNull() ?: computedValue) else computedValue
 }
 
-class CreateProjectViewModel(private val repository: ProjectRepository) : ViewModel() {
+class CreateProjectViewModel(
+    private val repository: ProjectRepository,
+    private val builtInDefaultsSeeder: BuiltInDefaultsSeeder
+) : ViewModel() {
     private val _uiState = MutableStateFlow(CreateProjectUiState())
     val uiState: StateFlow<CreateProjectUiState> = _uiState.asStateFlow()
 
@@ -122,6 +126,7 @@ class CreateProjectViewModel(private val repository: ProjectRepository) : ViewMo
                 manualProjectValue = if (s.useManualOverride) s.manualOverrideValue.toDoubleOrNull() else null,
                 startDate = now, expectedCompletionDate = expected, notes = s.notes
             )
+            builtInDefaultsSeeder.seedBuiltInDefaults(id)
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSaved(id)
         }

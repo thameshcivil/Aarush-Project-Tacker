@@ -49,4 +49,9 @@ class Converters {
     fun fromNotificationType(v: NotificationType): String = v.name
     @TypeConverter
     fun toNotificationType(v: String): NotificationType = NotificationType.valueOf(v)
+
+    @TypeConverter
+    fun fromBOQQuantityMode(v: BOQQuantityMode): String = v.name
+    @TypeConverter
+    fun toBOQQuantityMode(v: String): BOQQuantityMode = BOQQuantityMode.valueOf(v)
 }

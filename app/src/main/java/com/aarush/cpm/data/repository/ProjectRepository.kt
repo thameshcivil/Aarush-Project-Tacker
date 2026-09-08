@@ -93,11 +93,36 @@ class ProjectRepository(private val db: AppDatabase) {
     suspend fun getAreaComponents(projectId: Long): List<ProjectAreaComponent> =
         db.projectAreaComponentDao().getForProject(projectId)
 
-    suspend fun updateAreaComponent(component: ProjectAreaComponent) =
-        db.projectAreaComponentDao().update(component)
+    /** Recomputes Project.plinthAreaSqft (total area), ratePerSqft (blended), and
+     *  projectValue (sum of area×rate, unless manually overridden) from the current set of
+     *  ProjectAreaComponent rows. Call after any add/edit/delete of a component so the
+     *  headline figures on the dashboard stay correct. */
+    private suspend fun recalculateAggregatesFromComponents(projectId: Long) {
+        val project = db.projectDao().getById(projectId) ?: return
+        val components = db.projectAreaComponentDao().getForProject(projectId)
+        val totalArea = components.sumOf { it.areaSqft }
+        val computedValue = components.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
+        val blendedRate = if (totalArea > 0) computedValue / totalArea else 0.0
+        val newValue = if (project.isProjectValueManuallyOverridden) project.projectValue else computedValue
+        db.projectDao().update(
+            project.copy(plinthAreaSqft = totalArea, ratePerSqft = blendedRate, projectValue = newValue, updatedAt = System.currentTimeMillis())
+        )
+    }
 
-    suspend fun deleteAreaComponent(component: ProjectAreaComponent) =
+    suspend fun addAreaComponent(projectId: Long, label: String, areaSqft: Double, ratePerSqft: Double) {
+        db.projectAreaComponentDao().insertAll(listOf(ProjectAreaComponent(projectId = projectId, label = label, areaSqft = areaSqft, ratePerSqft = ratePerSqft)))
+        recalculateAggregatesFromComponents(projectId)
+    }
+
+    suspend fun updateAreaComponent(component: ProjectAreaComponent) {
+        db.projectAreaComponentDao().update(component)
+        recalculateAggregatesFromComponents(component.projectId)
+    }
+
+    suspend fun deleteAreaComponent(component: ProjectAreaComponent) {
         db.projectAreaComponentDao().delete(component)
+        recalculateAggregatesFromComponents(component.projectId)
+    }
 
     suspend fun updateProject(project: Project) =
         db.projectDao().update(project.copy(updatedAt = System.currentTimeMillis()))
