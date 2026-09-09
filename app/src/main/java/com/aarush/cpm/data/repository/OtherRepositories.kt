@@ -144,6 +144,7 @@ class VendorRepository(private val db: AppDatabase) {
 
 class ClientPaymentRepository(private val db: AppDatabase) {
     fun observeForProject(projectId: Long): Flow<List<ClientPayment>> = db.clientPaymentDao().observeForProject(projectId)
+    suspend fun getForProject(projectId: Long): List<ClientPayment> = db.clientPaymentDao().getForProject(projectId)
     fun observeTotalReceived(projectId: Long): Flow<Double> = db.clientPaymentDao().observeTotalReceived(projectId)
     suspend fun addPayment(payment: ClientPayment): Long = db.clientPaymentDao().insert(payment)
     suspend fun updatePayment(payment: ClientPayment) = db.clientPaymentDao().update(payment)
