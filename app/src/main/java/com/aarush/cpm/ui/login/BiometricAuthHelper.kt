@@ -6,7 +6,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.resume
+import kotlin.coroutines.resume
 
 /** Wraps BiometricPrompt (fingerprint/face/device-credential unlock) as a plain suspend
  *  function so it's easy to call from a ViewModel/coroutine without callback boilerplate. */

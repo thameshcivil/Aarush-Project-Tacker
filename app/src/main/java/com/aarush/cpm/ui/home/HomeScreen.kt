@@ -97,6 +97,7 @@ class HomeViewModel(
 
 private data class HomeCard(val title: String, val icon: ImageVector, val primaryLine: String, val secondaryLine: String)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: HomeViewModel, onOpenProjects: () -> Unit) {
     LaunchedEffect(Unit) { viewModel.load() }
