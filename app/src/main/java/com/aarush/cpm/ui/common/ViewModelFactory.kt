@@ -17,12 +17,6 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
             modelClass.isAssignableFrom(com.aarush.cpm.ui.dashboard.DashboardViewModel::class.java) ->
                 com.aarush.cpm.ui.dashboard.DashboardViewModel(container.projectRepository, container.projectSummaryRepository, container.sampleDataSeeder) as T
 
-            modelClass.isAssignableFrom(com.aarush.cpm.ui.home.HomeViewModel::class.java) ->
-                com.aarush.cpm.ui.home.HomeViewModel(
-                    container.projectRepository, container.boqRepository, container.expenseRepository,
-                    container.vendorRepository, container.clientPaymentRepository
-                ) as T
-
             modelClass.isAssignableFrom(com.aarush.cpm.ui.project.CreateProjectViewModel::class.java) ->
                 com.aarush.cpm.ui.project.CreateProjectViewModel(container.projectRepository, container.builtInDefaultsSeeder) as T
 

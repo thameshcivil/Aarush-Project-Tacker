@@ -83,22 +83,19 @@ class VendorViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VendorScreen(projectId: Long, viewModel: VendorViewModel, onBack: () -> Unit) {
+fun VendorTabContent(projectId: Long, viewModel: VendorViewModel) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val vendors by viewModel.vendors.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingVendor by remember { mutableStateOf<Vendor?>(null) }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Vendors") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } }) },
-        floatingActionButton = { FloatingActionButton(onClick = { showAddDialog = true }) { Icon(Icons.Filled.Add, "Add vendor") } }
-    ) { padding ->
+    Box(Modifier.fillMaxSize()) {
         if (vendors.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Text("No vendors yet. Tap + to add one.")
             }
         } else {
-            LazyColumn(modifier = Modifier.padding(padding).fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(vendors, key = { it.id }) { v ->
                     val balance = (v.contractValue - v.amountPaid).coerceAtLeast(0.0)
                     Card {
@@ -122,6 +119,11 @@ fun VendorScreen(projectId: Long, viewModel: VendorViewModel, onBack: () -> Unit
                 item { Spacer(Modifier.height(72.dp)) }
             }
         }
+
+        FloatingActionButton(
+            onClick = { showAddDialog = true },
+            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(16.dp)
+        ) { Icon(Icons.Filled.Add, "Add vendor") }
     }
 
     if (showAddDialog) {

@@ -23,6 +23,7 @@ import com.aarush.cpm.data.repository.ClientPaymentRepository
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
+import com.aarush.cpm.ui.common.formatDate
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -72,7 +73,7 @@ class ClientPaymentViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBack: () -> Unit) {
+fun ClientPaymentTabContent(projectId: Long, viewModel: ClientPaymentViewModel) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val payments by viewModel.payments.collectAsState()
     val totalReceived by viewModel.totalReceived.collectAsState()
@@ -80,11 +81,8 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
     var showAddDialog by remember { mutableStateOf(false) }
     var editingPayment by remember { mutableStateOf<ClientPayment?>(null) }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Client Payments") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } }) },
-        floatingActionButton = { FloatingActionButton(onClick = { showAddDialog = true }) { Icon(Icons.Filled.Add, "Add payment") } }
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             project?.let { p ->
                 val balance = CalculationEngine.clientBalance(p.projectValue, totalReceived)
                 Card(Modifier.padding(12.dp).fillMaxWidth()) {
@@ -113,7 +111,7 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
                                         TextButton(onClick = { viewModel.deletePayment(pay) }) { Text("Delete") }
                                     }
                                 }
-                                Text("${pay.paymentMode.name} • Ref: ${pay.referenceNumber.ifBlank { "-" }}")
+                                Text("${formatDate(pay.date)} • ${pay.paymentMode.name} • Ref: ${pay.referenceNumber.ifBlank { "-" }}")
                             }
                         }
                     }
@@ -121,6 +119,11 @@ fun ClientPaymentScreen(projectId: Long, viewModel: ClientPaymentViewModel, onBa
                 }
             }
         }
+
+        FloatingActionButton(
+            onClick = { showAddDialog = true },
+            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(16.dp)
+        ) { Icon(Icons.Filled.Add, "Add payment") }
     }
 
     if (showAddDialog) {

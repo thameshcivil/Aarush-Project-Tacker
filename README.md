@@ -240,6 +240,16 @@ analytics.
 - Added a **Home** tab (first item in the bottom bar) showing a cross-project summary —
   total BOQ value, expenses, vendor payables, and client payments received across every
   project at a glance.
+- Restructured project navigation: after login you land on **Projects** + **Settings**
+  only (the cross-project Home summary was removed). Opening a project now gives it its
+  own tab bar — **Home, BOQ, Expenses, Vendors, Payments, Settings** — all sharing one
+  screen instead of pushing a new screen per action. Home (first, next to BOQ) is what
+  used to be the whole project screen: header, budget vs actual, material status.
+- BOQ items are now grouped by item code with an expandable header per group (e.g. all
+  "001-Excavation" entries together); expanding an individual item shows its full
+  description, quantity, and a new **Remark** field.
+- Expenses are now grouped by item/material name the same way, each entry showing its
+  **date**, quantity, and remark when expanded.
 
 ## Contributing
 

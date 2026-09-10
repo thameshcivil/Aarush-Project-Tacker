@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -50,7 +49,8 @@ data class BOQItemInput(
     val depth: Double,
     val rate: Double,
     val materialType: String,
-    val wastePercent: Double
+    val wastePercent: Double,
+    val remark: String
 ) {
     val computedQuantity: Double
         get() = CalculationEngine.boqDimensionalQuantity(members, perMember, length, breadth, depth)
@@ -81,7 +81,7 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
                     description = input.description, unit = input.unit, quantity = qty, rate = input.rate,
                     amount = CalculationEngine.boqAmount(qty, input.rate), materialType = input.materialType,
                     wastePercent = input.wastePercent, numberOfMembers = input.members, perMember = input.perMember,
-                    length = input.length, breadth = input.breadth, depth = input.depth
+                    length = input.length, breadth = input.breadth, depth = input.depth, notes = input.remark
                 )
             )
         }
@@ -95,7 +95,8 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
                     itemCode = input.itemCode, category = input.category, description = input.description,
                     unit = input.unit, quantity = qty, rate = input.rate, amount = CalculationEngine.boqAmount(qty, input.rate),
                     materialType = input.materialType, wastePercent = input.wastePercent, numberOfMembers = input.members,
-                    perMember = input.perMember, length = input.length, breadth = input.breadth, depth = input.depth
+                    perMember = input.perMember, length = input.length, breadth = input.breadth, depth = input.depth,
+                    notes = input.remark
                 )
             )
         }
@@ -106,31 +107,53 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BOQScreen(projectId: Long, viewModel: BOQViewModel, onBack: () -> Unit) {
+fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val boqItems by viewModel.items.collectAsState()
     val notations by viewModel.notations.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<BOQItem?>(null) }
+    var expandedGroups by remember { mutableStateOf(setOf<String>()) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("BOQ") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } })
-        },
-        floatingActionButton = { FloatingActionButton(onClick = { showAddDialog = true }) { Icon(Icons.Filled.Add, "Add BOQ item") } }
-    ) { padding ->
+    Box(Modifier.fillMaxSize()) {
         if (boqItems.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No BOQ items yet. Tap + to add one.")
             }
         } else {
-            LazyColumn(modifier = Modifier.padding(padding).fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(boqItems, key = { it.id }) { item ->
-                    BOQItemCard(item = item, onEdit = { editingItem = item }, onDelete = { viewModel.deleteItem(item) })
+            val grouped = boqItems.groupBy { it.itemCode }.toSortedMap()
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                grouped.forEach { (code, groupItems) ->
+                    val isExpanded = expandedGroups.contains(code)
+                    val groupTotal = groupItems.sumOf { it.amount }
+                    item(key = "header-$code") {
+                        Card(
+                            onClick = { expandedGroups = if (isExpanded) expandedGroups - code else expandedGroups + code },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(code, fontWeight = FontWeight.Bold)
+                                    Text("${groupItems.size} item${if (groupItems.size == 1) "" else "s"}  •  ${formatCurrency(groupTotal)}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (isExpanded) "Collapse" else "Expand")
+                            }
+                        }
+                    }
+                    if (isExpanded) {
+                        items(groupItems, key = { it.id }) { boqItem ->
+                            BOQItemRow(item = boqItem, onEdit = { editingItem = boqItem }, onDelete = { viewModel.deleteItem(boqItem) })
+                        }
+                    }
                 }
                 item { Spacer(Modifier.height(72.dp)) }
             }
         }
+
+        FloatingActionButton(
+            onClick = { showAddDialog = true },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+        ) { Icon(Icons.Filled.Add, "Add BOQ item") }
     }
 
     if (showAddDialog) {
@@ -152,15 +175,20 @@ fun BOQScreen(projectId: Long, viewModel: BOQViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun BOQItemCard(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun BOQItemRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
-    Card(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().animateContentSize()) {
+    Card(
+        onClick = { expanded = !expanded },
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp).animateContentSize()
+    ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(item.itemCode, fontWeight = FontWeight.SemiBold)
-                    if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (item.description.isNotBlank()) item.description else "(no description)",
+                        fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium
+                    )
                     Text(
                         "${formatQuantity(item.quantity, item.unit)} @ ${formatCurrency(item.rate)}  =  ${formatCurrency(item.amount)}",
                         style = MaterialTheme.typography.bodySmall
@@ -168,19 +196,21 @@ private fun BOQItemCard(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
-
             if (expanded) {
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
+                Text("Description: ${item.description.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
+                Text("Quantity: ${formatQuantity(item.quantity, item.unit)}", style = MaterialTheme.typography.bodySmall)
                 Text("Category: ${item.category.name.replace("_", " ")}", style = MaterialTheme.typography.bodySmall)
                 Text(
                     "Members ${formatQuantity(item.numberOfMembers, "")}  •  Per member ${formatQuantity(item.perMember, "")}  •  L ${item.length}  •  B ${item.breadth}  •  D ${item.depth}",
                     style = MaterialTheme.typography.bodySmall
                 )
                 if (item.materialType.isNotBlank()) {
-                    Text("Work item: ${item.materialType}  •  Waste ${item.wastePercent}%", style = MaterialTheme.typography.bodySmall)
+                    Text("Waste: ${item.wastePercent}%", style = MaterialTheme.typography.bodySmall)
                 }
+                Text("Remark: ${item.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 Row {
                     TextButton(onClick = onEdit) {
@@ -216,6 +246,7 @@ private fun AddEditBOQItemDialog(
     var rate by remember { mutableStateOf(existing?.rate?.takeIf { it != 0.0 }?.toString() ?: "") }
     var waste by remember { mutableStateOf(existing?.wastePercent?.toString() ?: "3") }
     var materialType by remember { mutableStateOf(existing?.materialType ?: "") }
+    var remark by remember { mutableStateOf(existing?.notes ?: "") }
     var categoryMenuExpanded by remember { mutableStateOf(false) }
     var notationMenuExpanded by remember { mutableStateOf(false) }
     var unitMenuExpanded by remember { mutableStateOf(false) }
@@ -243,9 +274,6 @@ private fun AddEditBOQItemDialog(
                                         code = n.code
                                         materialType = n.code
                                         if (BOQUnits.OPTIONS.contains(n.defaultUnit)) unit = n.defaultUnit
-                                        // Description stays blank/unchanged — the notation code
-                                        // already carries its own label; the description field is
-                                        // left for the user's own free-text note on this specific item.
                                         notationMenuExpanded = false
                                     }
                                 )
@@ -303,6 +331,8 @@ private fun AddEditBOQItemDialog(
                 OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(waste, { waste = it }, label = { Text("Waste %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(remark, { remark = it }, label = { Text("Remark (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                 if (computedQty > 0 && (rate.toDoubleOrNull() ?: 0.0) > 0) {
                     Spacer(Modifier.height(6.dp))
                     Text("Amount: ${formatCurrency(computedQty * (rate.toDoubleOrNull() ?: 0.0))}", style = MaterialTheme.typography.bodySmall)
@@ -320,7 +350,7 @@ private fun AddEditBOQItemDialog(
                             members = members.toDoubleOrNull() ?: 0.0, perMember = perMember.toDoubleOrNull() ?: 0.0,
                             length = length.toDoubleOrNull() ?: 0.0, breadth = breadth.toDoubleOrNull() ?: 0.0,
                             depth = depth.toDoubleOrNull() ?: 0.0, rate = r,
-                            materialType = materialType.ifBlank { code }, wastePercent = w
+                            materialType = materialType.ifBlank { code }, wastePercent = w, remark = remark
                         )
                     )
                 }

@@ -13,3 +13,7 @@ fun formatQuantity(qty: Double, unit: String): String {
 }
 
 fun formatPercent(value: Double): String = "%.1f%%".format(value)
+
+private val dateFormat = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
+
+fun formatDate(epochMillis: Long): String = dateFormat.format(java.util.Date(epochMillis))

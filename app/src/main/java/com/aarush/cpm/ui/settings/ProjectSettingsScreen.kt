@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -174,29 +175,18 @@ class ProjectSettingsViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectSettingsScreen(projectId: Long, viewModel: ProjectSettingsViewModel, onBack: () -> Unit) {
+fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewModel) {
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val state by viewModel.uiState.collectAsState()
     var tab by remember { mutableStateOf(0) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Project Settings") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) } },
-                actions = {
-                    TextButton(onClick = { viewModel.saveAll() }, enabled = !state.isSaving) {
-                        Text(if (state.isSaving) "Saving…" else "Save all")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        if (state.isLoading) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            return@Scaffold
-        }
-        Column(Modifier.padding(padding).fillMaxSize()) {
+    if (state.isLoading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Coefficients") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Material Rates") })
@@ -206,6 +196,15 @@ fun ProjectSettingsScreen(projectId: Long, viewModel: ProjectSettingsViewModel, 
             }
             if (tab == 0) CoefficientsTab(state = state, viewModel = viewModel)
             else RatesTab(state = state, viewModel = viewModel)
+        }
+
+        ExtendedFloatingActionButton(
+            onClick = { viewModel.saveAll() },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+        ) {
+            Icon(Icons.Filled.Save, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (state.isSaving) "Saving…" else "Save all")
         }
     }
 }
