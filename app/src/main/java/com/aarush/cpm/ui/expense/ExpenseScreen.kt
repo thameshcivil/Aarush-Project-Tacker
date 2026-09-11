@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.entity.*
 import com.aarush.cpm.data.repository.ExpenseRepository
+import com.aarush.cpm.data.repository.MaterialRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
@@ -34,14 +35,26 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class ExpenseInput(
-    val category: CostCategory, val type: ExpenseType, val vendorId: Long?, val itemName: String,
-    val quantity: Double, val unit: String, val rate: Double, val paymentMode: PaymentMode,
-    val paymentStatus: PaymentStatus, val invoiceNumber: String, val notes: String
+    val direction: TransactionDirection,
+    val category: CostCategory,
+    val type: ExpenseType,
+    val vendorId: Long?,
+    val itemName: String,
+    val quantity: Double,
+    val unit: String,
+    val rate: Double,
+    val date: Long,
+    val paymentMode: PaymentMode,
+    val paymentStatus: PaymentStatus,
+    val invoiceNumber: String,
+    val notes: String,
+    val freightAmount: Double? = null
 )
 
 class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
-    private val vendorRepository: VendorRepository
+    private val vendorRepository: VendorRepository,
+    private val materialRepository: MaterialRepository
 ) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
 
@@ -53,6 +66,10 @@ class ExpenseViewModel(
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else vendorRepository.observeForProject(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val materialRates: StateFlow<List<MaterialRateCard>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else materialRepository.observeMaterialRates(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun init(projectId: Long) {
         projectIdFlow.value = projectId
     }
@@ -62,12 +79,27 @@ class ExpenseViewModel(
         viewModelScope.launch {
             expenseRepository.addExpense(
                 Expense(
-                    projectId = currentProjectId, date = System.currentTimeMillis(), category = input.category, type = input.type,
-                    vendorId = input.vendorId, itemOrMaterialName = input.itemName, quantity = input.quantity, unit = input.unit, rate = input.rate,
+                    projectId = currentProjectId, date = input.date, category = input.category, type = input.type,
+                    direction = input.direction, vendorId = input.vendorId, itemOrMaterialName = input.itemName,
+                    quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate), paymentMode = input.paymentMode,
                     paymentStatus = input.paymentStatus, invoiceNumber = input.invoiceNumber, notes = input.notes
                 )
             )
+            // Freight & Unloading is tracked as its own line item, same date/category/payment
+            // details, so it shows up distinctly in reports rather than being buried in the
+            // material's amount.
+            val freight = input.freightAmount
+            if (freight != null && freight > 0) {
+                expenseRepository.addExpense(
+                    Expense(
+                        projectId = currentProjectId, date = input.date, category = input.category, type = ExpenseType.OTHER,
+                        direction = input.direction, vendorId = null, itemOrMaterialName = "Freight & Unloading Charges",
+                        quantity = 1.0, unit = "LS", rate = freight, totalAmount = freight, paymentMode = input.paymentMode,
+                        paymentStatus = input.paymentStatus, invoiceNumber = input.invoiceNumber, notes = "Linked to: ${input.itemName}"
+                    )
+                )
+            }
         }
     }
 
@@ -76,7 +108,8 @@ class ExpenseViewModel(
             expenseRepository.updateExpense(
                 original,
                 original.copy(
-                    category = input.category, type = input.type, vendorId = input.vendorId, itemOrMaterialName = input.itemName,
+                    date = input.date, category = input.category, type = input.type, direction = input.direction,
+                    vendorId = input.vendorId, itemOrMaterialName = input.itemName,
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate), paymentMode = input.paymentMode,
                     paymentStatus = input.paymentStatus, invoiceNumber = input.invoiceNumber, notes = input.notes
@@ -94,6 +127,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val expenseList by viewModel.expenses.collectAsState()
     val vendorList by viewModel.vendors.collectAsState()
+    val materialRates by viewModel.materialRates.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingExpense by remember { mutableStateOf<Expense?>(null) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
@@ -101,7 +135,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
     Box(Modifier.fillMaxSize()) {
         if (expenseList.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No expenses yet. Tap + to add spending.")
+                Text("No expenses yet. Tap + to add spending or a receipt.")
             }
         } else {
             val grouped = expenseList.groupBy { it.itemOrMaterialName }.toSortedMap()
@@ -140,22 +174,24 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
     }
 
     if (showAddDialog) {
-        AddEditExpenseDialog(vendors = vendorList, existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
+        AddEditExpenseDialog(vendors = vendorList, materialRates = materialRates, existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
             viewModel.addExpense(input)
             showAddDialog = false
         })
     }
     editingExpense?.let { expense ->
-        AddEditExpenseDialog(vendors = vendorList, existing = expense, onDismiss = { editingExpense = null }, onSubmit = { input ->
+        AddEditExpenseDialog(vendors = vendorList, materialRates = materialRates, existing = expense, onDismiss = { editingExpense = null }, onSubmit = { input ->
             viewModel.updateExpense(expense, input)
             editingExpense = null
         })
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val isReceived = expense.direction == TransactionDirection.RECEIVED
 
     Card(
         onClick = { expanded = !expanded },
@@ -164,7 +200,13 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        if (isReceived) {
+                            Spacer(Modifier.width(6.dp))
+                            AssistChip(onClick = {}, label = { Text("Received", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
                     Text(
                         "${expense.quantity} ${expense.unit} @ ${formatCurrency(expense.rate)}  =  ${formatCurrency(expense.totalAmount)}",
                         style = MaterialTheme.typography.bodySmall
@@ -179,7 +221,8 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                 Text("Date: ${formatDate(expense.date)}", style = MaterialTheme.typography.bodySmall)
                 Text("Description: ${expense.itemOrMaterialName}", style = MaterialTheme.typography.bodySmall)
                 Text("Quantity: ${expense.quantity} ${expense.unit}", style = MaterialTheme.typography.bodySmall)
-                Text("Type: ${expense.type.name}  •  Category: ${expense.category.name.replace("_", " ")}  •  ${expense.paymentStatus.name}", style = MaterialTheme.typography.bodySmall)
+                Text("${if (isReceived) "Received" else "Expense"}  •  Type: ${expense.type.name}  •  Category: ${expense.category.name.replace("_", " ")}  •  ${expense.paymentStatus.name}", style = MaterialTheme.typography.bodySmall)
+                Text("Payment mode: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 if (expense.invoiceNumber.isNotBlank()) Text("Invoice: ${expense.invoiceNumber}", style = MaterialTheme.typography.bodySmall)
                 Text("Remark: ${expense.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
@@ -201,10 +244,12 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
 @Composable
 private fun AddEditExpenseDialog(
     vendors: List<Vendor>,
+    materialRates: List<MaterialRateCard>,
     existing: Expense?,
     onDismiss: () -> Unit,
     onSubmit: (ExpenseInput) -> Unit
 ) {
+    var direction by remember { mutableStateOf(existing?.direction ?: TransactionDirection.EXPENSE) }
     var category by remember { mutableStateOf(existing?.category ?: CostCategory.CIVIL_STRUCTURAL) }
     var type by remember { mutableStateOf(existing?.type ?: ExpenseType.MATERIAL) }
     var vendorId by remember { mutableStateOf(existing?.vendorId) }
@@ -212,16 +257,21 @@ private fun AddEditExpenseDialog(
     var quantity by remember { mutableStateOf(existing?.quantity?.toString() ?: "1") }
     var unit by remember { mutableStateOf(existing?.unit ?: "") }
     var rate by remember { mutableStateOf(existing?.rate?.toString() ?: "") }
+    var dateMillis by remember { mutableStateOf(existing?.date ?: System.currentTimeMillis()) }
     var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.CASH) }
     var paymentStatus by remember { mutableStateOf(existing?.paymentStatus ?: PaymentStatus.PAID) }
     var invoice by remember { mutableStateOf(existing?.invoiceNumber ?: "") }
     var remark by remember { mutableStateOf(existing?.notes ?: "") }
+    var showFreightField by remember { mutableStateOf(false) }
+    var freightAmount by remember { mutableStateOf("") }
 
+    var materialMenu by remember { mutableStateOf(false) }
     var catMenu by remember { mutableStateOf(false) }
     var typeMenu by remember { mutableStateOf(false) }
     var vendorMenu by remember { mutableStateOf(false) }
     var modeMenu by remember { mutableStateOf(false) }
     var statusMenu by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     val qtyD = quantity.toDoubleOrNull() ?: 0.0
     val rateD = rate.toDoubleOrNull() ?: 0.0
@@ -231,11 +281,28 @@ private fun AddEditExpenseDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "Add expense" else "Edit expense") },
         text = {
-            Column(Modifier.heightIn(max = 560.dp)) {
-                if (existing != null) {
-                    Text("Date: ${formatDate(existing.date)}", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(6.dp))
+            Column(Modifier.heightIn(max = 600.dp)) {
+                Text("Received / Expense", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = direction == TransactionDirection.EXPENSE, onClick = { direction = TransactionDirection.EXPENSE }, label = { Text("Expense") })
+                    FilterChip(selected = direction == TransactionDirection.RECEIVED, onClick = { direction = TransactionDirection.RECEIVED }, label = { Text("Received") })
                 }
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Date: ${formatDate(dateMillis)}")
+                }
+                Spacer(Modifier.height(6.dp))
+
+                Box {
+                    OutlinedButton(onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Mode of payment: ${paymentMode.name}") }
+                    DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
+                        PaymentMode.values().forEach { m -> DropdownMenuItem(text = { Text(m.name) }, onClick = { paymentMode = m; modeMenu = false }) }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+
                 Box {
                     OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Type: ${type.name}") }
                     DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
@@ -260,7 +327,31 @@ private fun AddEditExpenseDialog(
                         }
                     }
                 }
+
                 Spacer(Modifier.height(6.dp))
+                Text("List of material", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                if (materialRates.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(onClick = { materialMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(itemName.ifBlank { "Pick a material (or type your own below)" })
+                        }
+                        DropdownMenu(expanded = materialMenu, onDismissRequest = { materialMenu = false }) {
+                            materialRates.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text("${m.description} (${m.unit})") },
+                                    onClick = {
+                                        itemName = m.description
+                                        unit = m.unit
+                                        if (m.rate > 0) rate = "%.2f".format(m.rate)
+                                        materialMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
                 OutlinedTextField(itemName, { itemName = it }, label = { Text("Item / material / labour description") }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Row {
@@ -272,13 +363,24 @@ private fun AddEditExpenseDialog(
                 OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Text("Total: ${formatCurrency(total)}", fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Box {
-                    OutlinedButton(onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Payment mode: ${paymentMode.name}") }
-                    DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
-                        PaymentMode.values().forEach { m -> DropdownMenuItem(text = { Text(m.name) }, onClick = { paymentMode = m; modeMenu = false }) }
+
+                Spacer(Modifier.height(10.dp))
+                if (!showFreightField) {
+                    OutlinedButton(onClick = { showFreightField = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add Freight & Unloading Charges")
                     }
+                } else {
+                    OutlinedTextField(
+                        freightAmount, { freightAmount = it }, label = { Text("Freight & Unloading Charges (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = { showFreightField = false; freightAmount = "" }) { Text("Remove") }
                 }
+
                 Spacer(Modifier.height(6.dp))
                 Box {
                     OutlinedButton(onClick = { statusMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Status: ${paymentStatus.name}") }
@@ -297,9 +399,11 @@ private fun AddEditExpenseDialog(
                 if (itemName.isNotBlank() && qtyD > 0 && rateD >= 0) {
                     onSubmit(
                         ExpenseInput(
-                            category = category, type = type, vendorId = if (type == ExpenseType.VENDOR) vendorId else null,
-                            itemName = itemName, quantity = qtyD, unit = unit, rate = rateD, paymentMode = paymentMode,
-                            paymentStatus = paymentStatus, invoiceNumber = invoice, notes = remark
+                            direction = direction, category = category, type = type,
+                            vendorId = if (type == ExpenseType.VENDOR) vendorId else null,
+                            itemName = itemName, quantity = qtyD, unit = unit, rate = rateD, date = dateMillis,
+                            paymentMode = paymentMode, paymentStatus = paymentStatus, invoiceNumber = invoice,
+                            notes = remark, freightAmount = freightAmount.toDoubleOrNull()
                         )
                     )
                 }
@@ -307,4 +411,20 @@ private fun AddEditExpenseDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { dateMillis = it }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }

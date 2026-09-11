@@ -44,6 +44,7 @@ private val bottomTabs = listOf(
     BottomTab(Routes.SETTINGS, "Settings", Icons.Filled.Settings)
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AarushNavGraph(appContainer: AppContainer) {
     val navController = rememberNavController()

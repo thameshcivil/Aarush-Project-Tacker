@@ -147,6 +147,7 @@ fun DashboardScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProjectCard(card: ProjectCardData, onClick: () -> Unit, onDelete: () -> Unit) {
     val p = card.project

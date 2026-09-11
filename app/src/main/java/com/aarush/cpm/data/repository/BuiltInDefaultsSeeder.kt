@@ -61,7 +61,8 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
         RateRow("Window", "LS", 0.0),
         RateRow("Electrical", "LS", 0.0),
         RateRow("Plumbing", "LS", 0.0),
-        RateRow("Extra Labours & Machinaries", "LS", 0.0)
+        RateRow("Extra Labours & Machinaries", "LS", 0.0),
+        RateRow("Labour Cost for Civil Vendor", "Sqft", 0.0)
     )
 
     /** The distinct raw materials referenced by the coefficient table above, with the unit

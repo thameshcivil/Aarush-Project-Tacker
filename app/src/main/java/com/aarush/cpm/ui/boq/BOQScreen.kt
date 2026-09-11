@@ -174,6 +174,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BOQItemRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }

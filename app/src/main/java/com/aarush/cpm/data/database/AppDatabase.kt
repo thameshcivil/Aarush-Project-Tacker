@@ -34,7 +34,7 @@ import com.aarush.cpm.data.entity.*
         BOQNotation::class,
         MaterialRateCard::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -132,6 +132,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v4 → v5: adds expenses.direction (EXPENSE vs RECEIVED) for the redesigned expense
+         *  entry form. Existing rows default to 'EXPENSE', preserving today's behavior. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE expenses ADD COLUMN direction TEXT NOT NULL DEFAULT 'EXPENSE'")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -139,7 +147,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aarush_cpm.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build().also { INSTANCE = it }
             }
     }

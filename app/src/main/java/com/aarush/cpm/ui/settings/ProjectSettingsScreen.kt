@@ -209,6 +209,7 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CoefficientsTab(state: ProjectSettingsUiState, viewModel: ProjectSettingsViewModel) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -273,6 +274,7 @@ private fun CoeffField(label: String, value: String, modifier: Modifier = Modifi
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RatesTab(state: ProjectSettingsUiState, viewModel: ProjectSettingsViewModel) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

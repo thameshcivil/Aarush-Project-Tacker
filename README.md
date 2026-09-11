@@ -251,6 +251,16 @@ analytics.
 - Expenses are now grouped by item/material name the same way, each entry showing its
   **date**, quantity, and remark when expanded.
 
+- Expenses were redesigned around a real material rate card: **Received/Expense**
+  direction toggle (so a refund or adjustment can be logged from the same form without
+  counting as spend), a **Date** picker, **mode of payment**, and a **material picker**
+  sourced from the project's rate card (Cement, P.Sand, M.Sand, Bricks, Aggregates,
+  Steel, Tiles, Painting, Gravel, Door/Window/Electrical/Plumbing, Extra Labours &
+  Machinaries, and now **Labour Cost for Civil Vendor**) that auto-fills unit and rate.
+  A **"+ Add Freight & Unloading Charges"** button adds that as its own linked expense
+  line rather than folding it into the material's amount. Quantity/Rate/Unit and Save
+  work as before.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).

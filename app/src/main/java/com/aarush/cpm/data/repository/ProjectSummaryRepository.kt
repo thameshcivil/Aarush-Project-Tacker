@@ -3,6 +3,7 @@ package com.aarush.cpm.data.repository
 import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.CostAllocation
 import com.aarush.cpm.data.entity.Project
+import com.aarush.cpm.data.entity.TransactionDirection
 import com.aarush.cpm.domain.calculation.CalculationEngine
 
 data class CategoryBudgetVsActual(
@@ -31,12 +32,18 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
 
     suspend fun buildSummary(projectId: Long): ProjectSummary? {
         val project = db.projectDao().getById(projectId) ?: return null
-        val expenses = db.expenseDao().getForProject(projectId)
+        val allExpenses = db.expenseDao().getForProject(projectId)
+        // Expense rows can be either direction now — EXPENSE (money out, the historical
+        // default) or RECEIVED (money in, e.g. a refund/adjustment logged from the same
+        // form). Only EXPENSE rows count as spend or against a category's budget; RECEIVED
+        // rows fold into total received alongside client payments.
+        val expenses = allExpenses.filter { it.direction == TransactionDirection.EXPENSE }
+        val receivedViaExpenses = allExpenses.filter { it.direction == TransactionDirection.RECEIVED }.sumOf { it.totalAmount }
         val payments = db.clientPaymentDao().getForProject(projectId)
         val allocations = db.costAllocationDao().getForProject(projectId)
         val latestProgress = db.projectProgressDao().getLatest(projectId)
 
-        val totalReceived = payments.sumOf { it.amountReceived }
+        val totalReceived = payments.sumOf { it.amountReceived } + receivedViaExpenses
         val totalSpent = expenses.sumOf { it.totalAmount }
         val clientBalance = CalculationEngine.clientBalance(project.projectValue, totalReceived)
         val cashBalance = CalculationEngine.cashBalance(totalReceived, totalSpent)
