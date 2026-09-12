@@ -63,6 +63,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun materialRateCardDao(): MaterialRateCardDao
 
     companion object {
+        /** File name of the underlying SQLite database — also used by the backup/restore
+         *  feature (DatabaseBackupHelper) to locate the live file via context.getDatabasePath(). */
+        const val DB_NAME = "aarush_cpm.db"
+
         @Volatile private var INSTANCE: AppDatabase? = null
 
         /** v1 → v2: adds the project_area_components table (multi area/rate line items per
@@ -154,10 +158,21 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "aarush_cpm.db"
+                    DB_NAME
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build().also { INSTANCE = it }
             }
+
+        /** Closes and forgets the current singleton. Used by restore-from-backup, which
+         *  replaces the live database file on disk out from under any open connection —
+         *  the app process is restarted right after, so nothing tries to use a stale
+         *  AppDatabase/DAO reference against the swapped-out file. */
+        fun closeInstance() {
+            synchronized(this) {
+                INSTANCE?.close()
+                INSTANCE = null
+            }
+        }
     }
 }

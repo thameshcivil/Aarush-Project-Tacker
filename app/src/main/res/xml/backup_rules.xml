@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Used on API 23-30 for Android's own cloud Auto Backup (android:allowBackup="true" in
+     the manifest). Explicitly includes the "databases" folder, where Room's SQLite file
+     lives, so the OS-level backup covers it — a complement to, not a replacement for, the
+     in-app manual Backup/Restore feature in Settings (which is what actually survives an
+     uninstall reliably, since Auto Backup depends on the same Google account being used on
+     reinstall and isn't guaranteed to run before every uninstall). -->
+<full-backup-content>
+    <include domain="database" path="." />
+</full-backup-content>

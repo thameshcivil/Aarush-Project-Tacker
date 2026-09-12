@@ -12,6 +12,10 @@ import com.aarush.cpm.data.repository.*
 class AppContainer(context: Context) {
     private val db: AppDatabase = AppDatabase.getInstance(context)
 
+    /** Exposed (not just private) so the backup/restore feature can run a WAL checkpoint
+     *  directly against the live connection before copying the database file. */
+    val database: AppDatabase get() = db
+
     val authRepository by lazy { AuthRepository(db) }
     val authPreferencesRepository by lazy { AuthPreferencesRepository(context.applicationContext) }
     val projectRepository by lazy { ProjectRepository(db) }

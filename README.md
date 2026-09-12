@@ -191,6 +191,8 @@ analytics.
 ## Changelog
 
 **Since first build:**
+- Added local **Backup & Restore** (Settings tab) — see the dedicated section below for
+  why this matters and how it works.
 - Fixed a crash: the BOQ, Expenses, Vendors, and Client Payments screens would close the
   app immediately on open. Cause: their ViewModels read a `lateinit` `StateFlow` before
   the coroutine that initialized it had run. Fixed by initializing all screen state
@@ -300,6 +302,31 @@ analytics.
   category stays meaningful even though the simplified form doesn't ask for it
   directly. Falls back to "Other/Misc" for materials with no BOQ/coefficient link yet
   (including vendor payments, which aren't stock materials).
+
+## Backup & Restore
+
+Uninstalling an Android app deletes its private storage — including Room's SQLite
+database — which is exactly what was happening here. **Settings → Backup & Restore**
+now lets you export the entire database (every project) to a file you choose via the
+system file picker (Downloads, Google Drive, a USB drive, anywhere outside the app's
+own storage), and restore it back later, including after a fresh install.
+
+- **Back up now** — checkpoints the database (flushes any in-progress writes) and
+  copies it to wherever you pick. Do this before uninstalling, updating across a device
+  swap, or just periodically as a safety net.
+- **Restore from backup** — pick a previously saved backup file. This **replaces
+  everything currently in the app**, so it asks for confirmation first. The app
+  restarts automatically afterward — that's required, not optional: the restore swaps
+  the database file out from under every already-open connection, so a full process
+  restart is the only way already-running screens don't end up reading stale, closed
+  state.
+
+As a secondary safety net (not a replacement for the above — it depends on Android's
+own cloud backup being enabled and the same Google account being used on reinstall,
+neither of which is guaranteed), `backup_rules.xml` / `data_extraction_rules.xml`
+explicitly include Room's database folder in Android's built-in Auto Backup, which was
+otherwise relying on default behavior despite `android:allowBackup="true"` already being
+set.
 
 ## Contributing
 
