@@ -15,5 +15,10 @@ data class MaterialRateCard(
     val projectId: Long,
     val description: String,  // "Cement", "P.Sand", "Steel"...
     val unit: String,         // "Bags", "Units", "Nos", "MT", "Sqft", "LS"
-    val rate: Double = 0.0
+    val rate: Double = 0.0,
+    /** Set only for the auto-generated "Labour Cost for <Vendor>" row created when a Vendor
+     *  is added (see VendorRepository.addVendor). Selecting this entry in the Expense form's
+     *  material picker is how a vendor payment gets logged — it silently tags the resulting
+     *  Expense with this vendor id instead of requiring a separate vendor dropdown. */
+    val linkedVendorId: Long? = null
 )

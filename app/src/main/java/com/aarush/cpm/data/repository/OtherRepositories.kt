@@ -34,6 +34,30 @@ class MaterialRepository(private val db: AppDatabase) {
     fun observeMaterials(projectId: Long): Flow<List<Material>> = db.materialDao().observeForProject(projectId)
     suspend fun addMaterial(material: Material): Long = db.materialDao().insert(material)
 
+    /**
+     * Infers a CostCategory for a material name by tracing it through the coefficient engine:
+     * material → the BOQ notation(s) that consume it (via MaterialCoefficient.workItemKey) →
+     * the category of the BOQ item(s) using that notation. Returns null when the material
+     * isn't referenced by any coefficient/BOQ item (e.g. a vendor's linked "Labour Cost for
+     * <Vendor>" line, which was never meant to be tracked as a stock material) — the caller
+     * falls back to a default category in that case. Keeps Budget-vs-Actual meaningful even
+     * though the simplified Expense form no longer asks for category directly.
+     */
+    suspend fun inferCategoryForMaterial(projectId: Long, materialName: String): CostCategory? {
+        val relevantWorkItemKeys = db.materialCoefficientDao().getForProject(projectId)
+            .filter { it.materialName == materialName && it.coefficientPerUnit > 0 }
+            .map { it.workItemKey }
+            .toSet()
+        if (relevantWorkItemKeys.isEmpty()) return null
+
+        val matchingBoqItems = db.boqDao().getForProject(projectId).filter { it.materialType in relevantWorkItemKeys }
+        if (matchingBoqItems.isEmpty()) return null
+
+        // Most common category among the BOQ items that consume this material, in case it's
+        // used by notations spanning more than one category.
+        return matchingBoqItems.groupingBy { it.category }.eachCount().maxByOrNull { it.value }?.key
+    }
+
     fun observeCoefficients(projectId: Long): Flow<List<MaterialCoefficient>> =
         db.materialCoefficientDao().observeForProject(projectId)
     suspend fun getCoefficients(projectId: Long): List<MaterialCoefficient> =
@@ -129,13 +153,29 @@ class VendorRepository(private val db: AppDatabase) {
         startDate: Long, endDate: Long, paymentTerms: String, notes: String
     ): Long {
         val contractValue = CalculationEngine.vendorContractValue(rateType, rate, quantity, projectValue)
-        return db.vendorDao().insert(
+        val vendorId = db.vendorDao().insert(
             Vendor(
                 projectId = projectId, name = name, contact = contact, workCategory = workCategory,
                 rateType = rateType, rate = rate, quantity = quantity, contractValue = contractValue,
                 startDate = startDate, endDate = endDate, paymentTerms = paymentTerms, notes = notes
             )
         )
+        // Auto-create the linked material line ("Labour Cost for <Vendor>") so this vendor
+        // immediately shows up in the Expense form's material picker — that's how vendor
+        // payments get logged and tracked, no separate vendor selector needed there.
+        val (linkedUnit, linkedRate) = when (rateType) {
+            VendorRateType.PER_SQFT -> "Sqft" to rate
+            else -> "LS" to 0.0
+        }
+        db.materialRateCardDao().insertAll(
+            listOf(
+                MaterialRateCard(
+                    projectId = projectId, description = "Labour Cost for $name",
+                    unit = linkedUnit, rate = linkedRate, linkedVendorId = vendorId
+                )
+            )
+        )
+        return vendorId
     }
 
     suspend fun updateVendor(vendor: Vendor) = db.vendorDao().update(vendor)

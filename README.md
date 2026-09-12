@@ -261,6 +261,46 @@ analytics.
   line rather than folding it into the material's amount. Quantity/Rate/Unit and Save
   work as before.
 
+- Expenses were redesigned around a real material rate card: **Received/Expense**
+  direction toggle (so a refund or adjustment can be logged from the same form without
+  counting as spend), a **Date** picker, **mode of payment**, and a **material picker**
+  sourced from the project's rate card (Cement, P.Sand, M.Sand, Bricks, Aggregates,
+  Steel, Tiles, Painting, Gravel, Door/Window/Electrical/Plumbing, Extra Labours &
+  Machinaries, and now **Labour Cost for Civil Vendor**) that auto-fills unit and rate.
+  A **"+ Add Freight & Unloading Charges"** button adds that as its own linked expense
+  line rather than folding it into the material's amount. Quantity/Rate/Unit and Save
+  work as before.
+- Removed the standalone **Payments** tab — merged into Expenses. Expense/Received is
+  now a filter at the top of the Expense tab (not just a field inside the Add dialog):
+  "Expense" shows the grouped spend list, "Received" shows a flat list of amounts
+  received with date and mode of payment. Adding a new entry from either view adds to
+  that direction automatically.
+- The Add Expense dialog was trimmed to exactly: Date, Mode of payment, List of
+  material, Description, Quantity, Unit, Rate, an auto-calculated Total, and the
+  Freight & Unloading button. Type/Category/Vendor selectors were removed from this
+  form — vendor payments are now identified automatically by which material you pick
+  (see below), and category defaults to "Other/Misc" for expenses entered this way.
+- Expenses tab has a **Sort by: Material / Date** toggle, using the same
+  expand/collapse grouped-card pattern as BOQ.
+- **Vendors ↔ Expenses are now linked.** Creating a vendor auto-adds a "Labour Cost for
+  &lt;Vendor&gt;" row to the project's material list. Picking that row in the Expense
+  form's material picker is how you log a payment to that vendor — no separate vendor
+  field needed. The Vendor tab shows each vendor's payment history (date + amount) and
+  running balance, pulled from those tagged expenses.
+- The vendor Add/Edit form now adapts to the work basis: **"Rate work (plinth area)"**
+  shows Rate (₹/sqft) + Area (sqft) with a live contract-value total; **"Lumpsum"**
+  shows a single Lump Sum Amount field. Other rate types still fall back to a generic
+  Rate + Quantity pair.
+- Fixed a real UI bug: the Add/Edit dialogs (BOQ, Expense, Vendor) had no scroll
+  capability, so once the field list got taller than the dialog, inputs visually
+  overlapped instead of scrolling. All three now scroll properly.
+- Expense category is now inferred automatically instead of defaulting to "Other/Misc":
+  it traces the picked material through the BOQ coefficient engine (material → the
+  notation(s) that consume it → that notation's BOQ category) so Budget-vs-Actual by
+  category stays meaningful even though the simplified form doesn't ask for it
+  directly. Falls back to "Other/Misc" for materials with no BOQ/coefficient link yet
+  (including vendor payments, which aren't stock materials).
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).

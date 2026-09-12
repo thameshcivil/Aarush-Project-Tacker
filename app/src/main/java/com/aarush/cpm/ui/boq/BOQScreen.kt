@@ -2,6 +2,8 @@ package com.aarush.cpm.ui.boq
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -261,7 +263,7 @@ private fun AddEditBOQItemDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "Add BOQ item" else "Edit BOQ item") },
         text = {
-            Column(Modifier.heightIn(max = 560.dp)) {
+            Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                 if (notations.isNotEmpty()) {
                     Box {
                         OutlinedButton(onClick = { notationMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {

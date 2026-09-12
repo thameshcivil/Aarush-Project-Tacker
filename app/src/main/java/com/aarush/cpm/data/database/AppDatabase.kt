@@ -34,7 +34,7 @@ import com.aarush.cpm.data.entity.*
         BOQNotation::class,
         MaterialRateCard::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -140,6 +140,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 → v6: adds material_rates.linkedVendorId — the vendor↔material-picker link
+         *  used to log vendor payments through the Expense form's material dropdown instead
+         *  of a separate vendor selector. Additive, no data loss. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE material_rates ADD COLUMN linkedVendorId INTEGER")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -147,7 +156,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aarush_cpm.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build().also { INSTANCE = it }
             }
     }
