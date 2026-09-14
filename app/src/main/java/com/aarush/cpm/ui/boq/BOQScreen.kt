@@ -2,11 +2,11 @@ package com.aarush.cpm.ui.boq
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
@@ -27,7 +27,6 @@ import com.aarush.cpm.data.entity.BOQUnits
 import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.repository.BOQRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
-import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatQuantity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,7 +37,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Everything the Add/Edit dialog needs to submit — kept as one bundle so the same dialog
- *  composable works for both add and edit. */
+ *  composable works for both add and edit. No cost fields: BOQ is purely a measurement/
+ *  quantity tool now — costing comes from material coefficients × rate card, and vendor
+ *  contracts, not from a BOQ rate. */
 data class BOQItemInput(
     val itemCode: String,
     val category: CostCategory,
@@ -49,7 +50,6 @@ data class BOQItemInput(
     val length: Double,
     val breadth: Double,
     val depth: Double,
-    val rate: Double,
     val materialType: String,
     val wastePercent: Double,
     val remark: String
@@ -80,9 +80,9 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
             repository.addItem(
                 BOQItem(
                     projectId = currentProjectId, itemCode = input.itemCode, category = input.category,
-                    description = input.description, unit = input.unit, quantity = qty, rate = input.rate,
-                    amount = CalculationEngine.boqAmount(qty, input.rate), materialType = input.materialType,
-                    wastePercent = input.wastePercent, numberOfMembers = input.members, perMember = input.perMember,
+                    description = input.description, unit = input.unit, quantity = qty,
+                    materialType = input.materialType, wastePercent = input.wastePercent,
+                    numberOfMembers = input.members, perMember = input.perMember,
                     length = input.length, breadth = input.breadth, depth = input.depth, notes = input.remark
                 )
             )
@@ -95,10 +95,9 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
             repository.updateItem(
                 original.copy(
                     itemCode = input.itemCode, category = input.category, description = input.description,
-                    unit = input.unit, quantity = qty, rate = input.rate, amount = CalculationEngine.boqAmount(qty, input.rate),
-                    materialType = input.materialType, wastePercent = input.wastePercent, numberOfMembers = input.members,
-                    perMember = input.perMember, length = input.length, breadth = input.breadth, depth = input.depth,
-                    notes = input.remark
+                    unit = input.unit, quantity = qty, materialType = input.materialType, wastePercent = input.wastePercent,
+                    numberOfMembers = input.members, perMember = input.perMember, length = input.length,
+                    breadth = input.breadth, depth = input.depth, notes = input.remark
                 )
             )
         }
@@ -123,20 +122,22 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
                 Text("No BOQ items yet. Tap + to add one.")
             }
         } else {
-            val grouped = boqItems.groupBy { it.itemCode }.toSortedMap()
+            // Grouped by Description (not item code) — entries measured under the same
+            // description (e.g. every "Footing" you enter) collapse into one group, the
+            // same expand/collapse pattern notations already use.
+            val grouped = boqItems.groupBy { it.description.ifBlank { it.itemCode } }.toSortedMap()
             LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                grouped.forEach { (code, groupItems) ->
-                    val isExpanded = expandedGroups.contains(code)
-                    val groupTotal = groupItems.sumOf { it.amount }
-                    item(key = "header-$code") {
+                grouped.forEach { (desc, groupItems) ->
+                    val isExpanded = expandedGroups.contains(desc)
+                    item(key = "header-$desc") {
                         Card(
-                            onClick = { expandedGroups = if (isExpanded) expandedGroups - code else expandedGroups + code },
+                            onClick = { expandedGroups = if (isExpanded) expandedGroups - desc else expandedGroups + desc },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(code, fontWeight = FontWeight.Bold)
-                                    Text("${groupItems.size} item${if (groupItems.size == 1) "" else "s"}  •  ${formatCurrency(groupTotal)}", style = MaterialTheme.typography.bodySmall)
+                                    Text(desc, fontWeight = FontWeight.Bold)
+                                    Text("${groupItems.size} entr${if (groupItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (isExpanded) "Collapse" else "Expand")
                             }
@@ -188,14 +189,8 @@ private fun BOQItemRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) 
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        if (item.description.isNotBlank()) item.description else "(no description)",
-                        fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "${formatQuantity(item.quantity, item.unit)} @ ${formatCurrency(item.rate)}  =  ${formatCurrency(item.amount)}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text(item.itemCode, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Text(formatQuantity(item.quantity, item.unit), style = MaterialTheme.typography.bodySmall)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
@@ -203,6 +198,7 @@ private fun BOQItemRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) 
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
+                Text("Item code: ${item.itemCode}", style = MaterialTheme.typography.bodySmall)
                 Text("Description: ${item.description.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
                 Text("Quantity: ${formatQuantity(item.quantity, item.unit)}", style = MaterialTheme.typography.bodySmall)
                 Text("Category: ${item.category.name.replace("_", " ")}", style = MaterialTheme.typography.bodySmall)
@@ -246,7 +242,6 @@ private fun AddEditBOQItemDialog(
     var length by remember { mutableStateOf(existing?.length?.takeIf { it != 0.0 }?.toString() ?: "") }
     var breadth by remember { mutableStateOf(existing?.breadth?.takeIf { it != 0.0 }?.toString() ?: "") }
     var depth by remember { mutableStateOf(existing?.depth?.takeIf { it != 0.0 }?.toString() ?: "") }
-    var rate by remember { mutableStateOf(existing?.rate?.takeIf { it != 0.0 }?.toString() ?: "") }
     var waste by remember { mutableStateOf(existing?.wastePercent?.toString() ?: "3") }
     var materialType by remember { mutableStateOf(existing?.materialType ?: "") }
     var remark by remember { mutableStateOf(existing?.notes ?: "") }
@@ -298,7 +293,7 @@ private fun AddEditBOQItemDialog(
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(description, { description = it }, label = { Text("Description (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(description, { description = it }, label = { Text("Description") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Box {
                     OutlinedButton(onClick = { unitMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Unit: $unit") }
@@ -331,28 +326,21 @@ private fun AddEditBOQItemDialog(
                 Text("Calculated quantity: ${formatQuantity(computedQty, unit)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
 
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(waste, { waste = it }, label = { Text("Waste %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(remark, { remark = it }, label = { Text("Remark (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                if (computedQty > 0 && (rate.toDoubleOrNull() ?: 0.0) > 0) {
-                    Spacer(Modifier.height(6.dp))
-                    Text("Amount: ${formatCurrency(computedQty * (rate.toDoubleOrNull() ?: 0.0))}", style = MaterialTheme.typography.bodySmall)
-                }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val r = rate.toDoubleOrNull() ?: 0.0
                 val w = waste.toDoubleOrNull() ?: 0.0
-                if (code.isNotBlank() && computedQty > 0 && r >= 0) {
+                if (code.isNotBlank() && computedQty > 0) {
                     onSubmit(
                         BOQItemInput(
                             itemCode = code, category = category, description = description, unit = unit,
                             members = members.toDoubleOrNull() ?: 0.0, perMember = perMember.toDoubleOrNull() ?: 0.0,
                             length = length.toDoubleOrNull() ?: 0.0, breadth = breadth.toDoubleOrNull() ?: 0.0,
-                            depth = depth.toDoubleOrNull() ?: 0.0, rate = r,
+                            depth = depth.toDoubleOrNull() ?: 0.0,
                             materialType = materialType.ifBlank { code }, wastePercent = w, remark = remark
                         )
                     )

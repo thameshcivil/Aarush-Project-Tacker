@@ -56,8 +56,8 @@ class SampleDataSeeder(
         // Sample BOQ
         db.boqDao().insertAll(
             listOf(
-                BOQItem(projectId = projectId, itemCode = "C-01", category = CostCategory.CIVIL_STRUCTURAL, description = "RCC Footing (M20)", unit = "m3", quantity = 40.0, rate = 8500.0, amount = 40.0 * 8500.0, materialType = "Concrete M20", wastePercent = 3.0),
-                BOQItem(projectId = projectId, itemCode = "C-02", category = CostCategory.CIVIL_STRUCTURAL, description = "Brick masonry - superstructure", unit = "m3", quantity = 60.0, rate = 4200.0, amount = 60.0 * 4200.0, materialType = "Brick Masonry", wastePercent = 5.0)
+                BOQItem(projectId = projectId, itemCode = "C-01", category = CostCategory.CIVIL_STRUCTURAL, description = "RCC Footing (M20)", unit = "Cum", quantity = 40.0, materialType = "Concrete M20", wastePercent = 3.0),
+                BOQItem(projectId = projectId, itemCode = "C-02", category = CostCategory.CIVIL_STRUCTURAL, description = "Brick masonry - superstructure", unit = "Cum", quantity = 60.0, materialType = "Brick Masonry", wastePercent = 5.0)
             )
         )
 

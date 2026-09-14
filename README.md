@@ -191,6 +191,21 @@ analytics.
 ## Changelog
 
 **Since first build:**
+- BOQ dropped rate/cost entry entirely — it's now a pure measurement tool. BOQ entries
+  are grouped by **Description** (not item code) with the same collapse/expand pattern
+  as before. Costing comes entirely from the material coefficient engine and vendor
+  contracts now — see **Budget 2**, below.
+- Added a **Steel** column to the coefficient table (Settings → Coefficients), thumb-
+  ruled for the RCC notation by default (~100 kg of reinforcement per cum, expressed as
+  kg per Cft since that's RCC's unit here) — edit it to match your actual design %.
+- Added **Budget 2**, a second, calculated budget shown on the Home tab alongside the
+  existing fixed plinth-area budget (now labeled **Budget 1**): Civil work is priced
+  bottom-up from BOQ measurements × material coefficients × your rate card, plus
+  civil-labour vendor contracts (Civil/Structural/Mason/Carpenter categories); MEP,
+  Painting, Joinery, and Other still use the thumb-rule percentage of Budget 1,
+  unchanged. The Home tab now shows both **Budget 2 vs Expense** (a cost-control check —
+  are you spending more than the real measured work should cost?) and **Budget 1 vs
+  Expense** (the actual profit — what the client pays minus what it costs).
 - Added local **Backup & Restore** (Settings tab) — see the dedicated section below for
   why this matters and how it works.
 - Fixed a crash: the BOQ, Expenses, Vendors, and Client Payments screens would close the

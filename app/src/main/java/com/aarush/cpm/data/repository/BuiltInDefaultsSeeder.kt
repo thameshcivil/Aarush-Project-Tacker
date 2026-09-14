@@ -22,13 +22,19 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
         val pSand: Double,
         val mSand: Double,
         val bricks: Double,
-        val aggregate20mm: Double
+        val aggregate20mm: Double,
+        val steel: Double = 0.0
     )
 
+    // Steel is thumb-ruled for RCC only, ~100 kg of reinforcement per cum of concrete
+    // (a common general-estimate range is 80-150 kg/cum depending on member type) converted
+    // to kg per Cft since that's this notation's own unit (1 cum ≈ 35.315 Cft). This is a
+    // starting estimate, not an engineering figure — edit it in Settings to match your
+    // actual design/BBS percentage.
     private val notationRows = listOf(
         NotationRow("001-Excavation", "Excavation", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
         NotationRow("002-Plain Cement Concrete", "Plain Cement Concrete", "Cft", 0.123, 0.0, 0.462, 0.0, 0.924),
-        NotationRow("003-Reinforced Cement Concrete", "Reinforced Cement Concrete", "Cft", 0.246, 0.0, 0.462, 0.0, 0.924),
+        NotationRow("003-Reinforced Cement Concrete", "Reinforced Cement Concrete", "Cft", 0.246, 0.0, 0.462, 0.0, 0.924, steel = 2.83),
         NotationRow("004-9\" Brick work", "9\" Brick work", "Cft", 0.03, 0.0, 0.225, 13.5, 0.0),
         NotationRow("005-4.5\" Brick work", "4.5\" Brick work", "Sqft", 0.012, 0.0, 0.09, 5.5, 0.0),
         NotationRow("006-Back Filling", "Back Filling", "Cft", 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -49,7 +55,7 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
         RateRow("Bricks", "Nos", 10.0),
         RateRow("20mm Aggregate", "Units", 6000.0),
         RateRow("40mm Aggregate", "Units", 7000.0),
-        RateRow("Steel", "MT", 66.0),
+        RateRow("Steel", "kg", 68.0),
         RateRow("Floor Tile", "Sqft", 75.0),
         RateRow("Skirting", "Sqft", 75.0),
         RateRow("Wall Dado", "Sqft", 65.0),
@@ -73,7 +79,8 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
         "P.Sand" to "cft",
         "M.Sand" to "cft",
         "Bricks" to "nos",
-        "20mm Aggregate" to "cft"
+        "20mm Aggregate" to "cft",
+        "Steel" to "kg"
     )
 
     suspend fun seedBuiltInDefaults(projectId: Long) {
@@ -88,6 +95,7 @@ class BuiltInDefaultsSeeder(private val db: AppDatabase) {
             coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "M.Sand", coefficientPerUnit = row.mSand)
             coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "Bricks", coefficientPerUnit = row.bricks)
             coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "20mm Aggregate", coefficientPerUnit = row.aggregate20mm)
+            coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "Steel", coefficientPerUnit = row.steel)
         }
         db.materialCoefficientDao().insertAll(coefficients)
 

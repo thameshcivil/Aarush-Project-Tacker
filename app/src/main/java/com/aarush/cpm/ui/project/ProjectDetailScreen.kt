@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit
 
 data class ProjectDetailUiState(
     val summary: ProjectSummary? = null,
+    val budgetComparison: BudgetComparison? = null,
     val materialStatus: List<MaterialStatusRow> = emptyList(),
     val areaComponents: List<ProjectAreaComponent> = emptyList(),
     val daysRemaining: Long? = null,
@@ -60,14 +61,15 @@ class ProjectDetailViewModel(
 
     private suspend fun refresh() {
         val summary = summaryRepository.buildSummary(currentProjectId)
+        val budgetComparison = summaryRepository.buildBudgetComparison(currentProjectId)
         val materials = materialRepository.materialStatus(currentProjectId)
         val areaComponents = projectRepository.getAreaComponents(currentProjectId)
         val daysRemaining = summary?.project?.expectedCompletionDate?.let {
             TimeUnit.MILLISECONDS.toDays(it - System.currentTimeMillis())
         }
         _uiState.value = ProjectDetailUiState(
-            summary = summary, materialStatus = materials, areaComponents = areaComponents,
-            daysRemaining = daysRemaining, isLoading = false
+            summary = summary, budgetComparison = budgetComparison, materialStatus = materials,
+            areaComponents = areaComponents, daysRemaining = daysRemaining, isLoading = false
         )
     }
 
@@ -125,6 +127,7 @@ fun ProjectHomeTabContent(projectId: Long, viewModel: ProjectDetailViewModel) {
         item {
             LazyRowStats(summary = summary, daysRemaining = state.daysRemaining)
         }
+        state.budgetComparison?.let { bc -> item { BudgetComparisonCard(bc) } }
         item { Text("Budget vs Actual", style = MaterialTheme.typography.titleSmall) }
         items(summary.categories) { cat ->
             Card {
@@ -285,6 +288,47 @@ private fun AreaRateEditableRow(
                 Text("Subtotal: ${formatCurrency(CalculationEngine.projectValue(a, r))}", style = MaterialTheme.typography.labelSmall)
                 TextButton(onClick = { onUpdate(component, label, a, r) }) { Text("Save") }
             }
+        }
+    }
+}
+
+@Composable
+private fun BudgetComparisonCard(bc: BudgetComparison) {
+    Card {
+        Column(Modifier.padding(16.dp)) {
+            Text("Budget Comparison", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+
+            Text("Budget 1 — plinth area method (fixed)", style = MaterialTheme.typography.labelMedium)
+            Text(formatCurrency(bc.budget1), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+
+            Text("Budget 2 — calculated from measurements", style = MaterialTheme.typography.labelMedium)
+            Text(formatCurrency(bc.budget2), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Civil (material ${formatCurrency(bc.civilMaterialCost)} + labour ${formatCurrency(bc.civilLabourCost)}) = ${formatCurrency(bc.civilTotal)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text("MEP / Painting / Joinery / Other (% of Budget 1): ${formatCurrency(bc.otherCategoriesTotal)}", style = MaterialTheme.typography.bodySmall)
+
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+
+            Text("Expense so far: ${formatCurrency(bc.actualExpense)}", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Budget 2 vs Expense (cost control): ${formatCurrency(bc.costControlVariance)}" +
+                    if (bc.costControlVariance < 0) " over" else " remaining",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (bc.costControlVariance < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+            Text(
+                "Budget 1 vs Expense (expected profit): ${formatCurrency(bc.expectedProfit)}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

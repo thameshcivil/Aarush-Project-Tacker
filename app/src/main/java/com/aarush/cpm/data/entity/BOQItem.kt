@@ -21,8 +21,12 @@ data class BOQItem(
     /** Always the *final* computed quantity — members × perMember × length × breadth × depth
      *  (see CalculationEngine.boqDimensionalQuantity) — used everywhere else in the app. */
     val quantity: Double,
-    val rate: Double,
-    val amount: Double,             // quantity * rate (editable override allowed)
+    /** No longer entered or shown — BOQ is a pure measurement/quantity tool now. Costing
+     *  comes from the material coefficient engine (quantity × coefficient × material rate)
+     *  and vendor contracts instead — see ProjectSummaryRepository's Budget 2 calculation.
+     *  Left in the schema at 0.0 rather than removed, to avoid an unnecessary migration. */
+    val rate: Double = 0.0,
+    val amount: Double = 0.0,
     val labourQuantity: Double = 0.0,
     val labourRate: Double = 0.0,
     val labourAmount: Double = 0.0,

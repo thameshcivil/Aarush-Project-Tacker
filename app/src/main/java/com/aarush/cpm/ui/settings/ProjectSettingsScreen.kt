@@ -41,7 +41,8 @@ data class CoefficientEditRow(
     var pSand: String = "0",
     var mSand: String = "0",
     var bricks: String = "0",
-    var aggregate20mm: String = "0"
+    var aggregate20mm: String = "0",
+    var steel: String = "0"
 )
 
 data class RateEditRow(
@@ -92,7 +93,8 @@ class ProjectSettingsViewModel(
                     pSand = fmt(cells["P.Sand"]),
                     mSand = fmt(cells["M.Sand"]),
                     bricks = fmt(cells["Bricks"]),
-                    aggregate20mm = fmt(cells["20mm Aggregate"])
+                    aggregate20mm = fmt(cells["20mm Aggregate"]),
+                    steel = fmt(cells["Steel"])
                 )
             }
 
@@ -159,6 +161,7 @@ class ProjectSettingsViewModel(
                 coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "M.Sand", coefficientPerUnit = row.mSand.toDoubleOrNull() ?: 0.0)
                 coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "Bricks", coefficientPerUnit = row.bricks.toDoubleOrNull() ?: 0.0)
                 coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "20mm Aggregate", coefficientPerUnit = row.aggregate20mm.toDoubleOrNull() ?: 0.0)
+                coefficients += MaterialCoefficient(projectId = projectId, workItemKey = row.code, materialName = "Steel", coefficientPerUnit = row.steel.toDoubleOrNull() ?: 0.0)
             }
             boqRepository.replaceNotationsAndCoefficients(projectId, notations, coefficients)
 
@@ -261,7 +264,11 @@ private fun CoefficientRowCard(row: CoefficientEditRow, onChange: ((CoefficientE
                 CoeffField("Bricks", row.bricks, Modifier.weight(1f)) { v -> onChange { it.copy(bricks = v) } }
             }
             Spacer(Modifier.height(4.dp))
-            CoeffField("20mm Aggregate", row.aggregate20mm, Modifier.fillMaxWidth()) { v -> onChange { it.copy(aggregate20mm = v) } }
+            Row {
+                CoeffField("20mm Aggregate", row.aggregate20mm, Modifier.weight(1f)) { v -> onChange { it.copy(aggregate20mm = v) } }
+                Spacer(Modifier.width(4.dp))
+                CoeffField("Steel (RCC thumb rule)", row.steel, Modifier.weight(1f)) { v -> onChange { it.copy(steel = v) } }
+            }
         }
     }
 }
