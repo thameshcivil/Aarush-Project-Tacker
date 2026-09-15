@@ -1,6 +1,6 @@
 package com.aarush.cpm.ui.boq
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,7 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
@@ -106,6 +106,8 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
     fun deleteItem(item: BOQItem) { viewModelScope.launch { repository.deleteItem(item) } }
 }
 
+private enum class BOQSortMode(val label: String) { NOTATIONS("Notations"), DESCRIPTION("Description") }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
@@ -114,42 +116,77 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
     val notations by viewModel.notations.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<BOQItem?>(null) }
-    var expandedGroups by remember { mutableStateOf(setOf<String>()) }
+    var sortMode by remember { mutableStateOf(BOQSortMode.NOTATIONS) }
+    var expandedMain by remember { mutableStateOf(setOf<String>()) }
+    var expandedSub by remember { mutableStateOf(setOf<String>()) }
+
+    fun mainKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.itemCode else item.description.ifBlank { item.itemCode }
+    fun subKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.description.ifBlank { item.itemCode } else item.itemCode
 
     Box(Modifier.fillMaxSize()) {
-        if (boqItems.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No BOQ items yet. Tap + to add one.")
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Sort by:", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BOQSortMode.values().forEach { mode ->
+                        FilterChip(selected = sortMode == mode, onClick = { sortMode = mode }, label = { Text(mode.label) })
+                    }
+                }
             }
-        } else {
-            // Grouped by Description (not item code) — entries measured under the same
-            // description (e.g. every "Footing" you enter) collapse into one group, the
-            // same expand/collapse pattern notations already use.
-            val grouped = boqItems.groupBy { it.description.ifBlank { it.itemCode } }.toSortedMap()
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                grouped.forEach { (desc, groupItems) ->
-                    val isExpanded = expandedGroups.contains(desc)
-                    item(key = "header-$desc") {
-                        Card(
-                            onClick = { expandedGroups = if (isExpanded) expandedGroups - desc else expandedGroups + desc },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(desc, fontWeight = FontWeight.Bold)
-                                    Text("${groupItems.size} entr${if (groupItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.bodySmall)
+
+            if (boqItems.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No BOQ items yet. Tap + to add one.")
+                }
+            } else {
+                val mainGrouped = boqItems.groupBy { mainKeyOf(it) }.toSortedMap()
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    mainGrouped.forEach { (mainKey, mainItems) ->
+                        val mainExpanded = expandedMain.contains(mainKey)
+                        item(key = "main-$mainKey") {
+                            Card(
+                                onClick = { expandedMain = if (mainExpanded) expandedMain - mainKey else expandedMain + mainKey },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(mainKey, fontWeight = FontWeight.Bold)
+                                        Text("${mainItems.size} entr${if (mainItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Icon(if (mainExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (mainExpanded) "Collapse" else "Expand")
                                 }
-                                Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (isExpanded) "Collapse" else "Expand")
+                            }
+                        }
+                        if (mainExpanded) {
+                            val subGrouped = mainItems.groupBy { subKeyOf(it) }.toSortedMap()
+                            subGrouped.forEach { (subKey, subItems) ->
+                                val subFullKey = "$mainKey|$subKey"
+                                val subExpanded = expandedSub.contains(subFullKey)
+                                item(key = "sub-$subFullKey") {
+                                    Card(
+                                        onClick = { expandedSub = if (subExpanded) expandedSub - subFullKey else expandedSub + subFullKey },
+                                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
+                                    ) {
+                                        Row(Modifier.padding(10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            Column(Modifier.weight(1f)) {
+                                                Text(subKey, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                Text("${subItems.size} entr${if (subItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            Icon(if (subExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (subExpanded) "Collapse" else "Expand", modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                }
+                                if (subExpanded) {
+                                    items(subItems, key = { it.id }) { boqItem ->
+                                        BOQItemCompactRow(item = boqItem, onEdit = { editingItem = boqItem }, onDelete = { viewModel.deleteItem(boqItem) })
+                                    }
+                                }
                             }
                         }
                     }
-                    if (isExpanded) {
-                        items(groupItems, key = { it.id }) { boqItem ->
-                            BOQItemRow(item = boqItem, onEdit = { editingItem = boqItem }, onDelete = { viewModel.deleteItem(boqItem) })
-                        }
-                    }
+                    item { Spacer(Modifier.height(72.dp)) }
                 }
-                item { Spacer(Modifier.height(72.dp)) }
             }
         }
 
@@ -177,51 +214,36 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** One BOQ entry's compact row — per request, only Members / Per Member / L / B / D / Qty,
+ *  no item code, description, category, waste, or remark repeated here (they're already the
+ *  group headers this row sits under). Tap the row to edit; the trailing icon deletes. */
 @Composable
-private fun BOQItemRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Card(
-        onClick = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp).animateContentSize()
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(item.itemCode, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                    Text(formatQuantity(item.quantity, item.unit), style = MaterialTheme.typography.bodySmall)
-                }
-                Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
+private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
+        Row(Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                CompactStat("M", item.numberOfMembers)
+                CompactStat("PM", item.perMember)
+                CompactStat("L", item.length)
+                CompactStat("B", item.breadth)
+                CompactStat("D", item.depth)
+                CompactStat("Qty", item.quantity, item.unit)
             }
-            if (expanded) {
-                Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Text("Item code: ${item.itemCode}", style = MaterialTheme.typography.bodySmall)
-                Text("Description: ${item.description.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
-                Text("Quantity: ${formatQuantity(item.quantity, item.unit)}", style = MaterialTheme.typography.bodySmall)
-                Text("Category: ${item.category.name.replace("_", " ")}", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Members ${formatQuantity(item.numberOfMembers, "")}  •  Per member ${formatQuantity(item.perMember, "")}  •  L ${item.length}  •  B ${item.breadth}  •  D ${item.depth}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                if (item.materialType.isNotBlank()) {
-                    Text("Waste: ${item.wastePercent}%", style = MaterialTheme.typography.bodySmall)
-                }
-                Text("Remark: ${item.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(8.dp))
-                Row {
-                    TextButton(onClick = onEdit) {
-                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Edit")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onDelete) { Text("Delete") }
-                }
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun CompactStat(label: String, value: Double, unit: String = "") {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelSmall)
+        Text(formatQuantity(value, unit), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
 

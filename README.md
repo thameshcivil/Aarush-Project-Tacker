@@ -191,6 +191,28 @@ analytics.
 ## Changelog
 
 **Since first build:**
+- BOQ now has a **Sort by: Notations / Description** toggle with two-level nested
+  grouping — sorting by Notations puts item codes as the main group and descriptions as
+  sub-groups (or vice versa for Description); entries sharing both collapse into one
+  line-by-line sub-group. The per-item row was trimmed to just Members / Per Member /
+  L / B / D / Qty — item code, description, category, waste %, and remark are already
+  shown as the group headers, so they're not repeated per row. Tap a row to edit, the
+  trailing icon deletes.
+- Fixed a real gap: vendor payments (logged via the Expense tab's material picker) were
+  always landing in "Other/Misc" for Budget-vs-Actual, even for a Civil vendor — so
+  Civil/Structural's actual spend was silently missing labour costs. Vendor payments
+  now take the vendor's own work category (Civil/Structural/Mason/Carpenter → Civil;
+  Electrician/Plumbing/HVAC → MEP; Painting → Painting; Aluminium/Fabrication →
+  Joinery; everything else → Other).
+- Removed the placeholder "Labour Cost for Civil Vendor" row from the default material
+  list — every vendor you actually create already gets its own "Labour Cost for
+  &lt;Vendor&gt;" row automatically, making the generic placeholder redundant.
+- Added a dedicated **Material Status** tab (Home, Material Status, BOQ, Expenses,
+  Vendors, Settings) showing, per material: Required qty, Required budget, Purchased
+  qty, Remaining qty, Stock, Expensed amount, and Balance holding amount (required
+  budget minus what's actually been spent on it — negative once you've overspent that
+  material specifically). Six tabs don't fit Material3's standard bottom bar without
+  squeezing labels unreadably, so the project tab bar now scrolls horizontally instead.
 - BOQ dropped rate/cost entry entirely — it's now a pure measurement tool. BOQ entries
   are grouped by **Description** (not item code) with the same collapse/expand pattern
   as before. Costing comes entirely from the material coefficient engine and vendor

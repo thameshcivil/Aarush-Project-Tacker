@@ -24,6 +24,7 @@ import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.entity.*
 import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.MaterialRepository
+import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatDate
@@ -59,7 +60,8 @@ data class ReceivedInput(
 
 class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
-    private val materialRepository: MaterialRepository
+    private val materialRepository: MaterialRepository,
+    private val vendorRepository: VendorRepository
 ) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
 
@@ -69,6 +71,10 @@ class ExpenseViewModel(
 
     val materialRates: StateFlow<List<MaterialRateCard>> = projectIdFlow
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else materialRepository.observeMaterialRates(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val vendors: StateFlow<List<Vendor>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else vendorRepository.observeForProject(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
@@ -82,15 +88,32 @@ class ExpenseViewModel(
         return if (linked != null) ExpenseType.VENDOR to linked.linkedVendorId else ExpenseType.MATERIAL to null
     }
 
+    /** Category for a vendor payment: the vendor's own work category, mapped onto the
+     *  project's cost categories — this is what makes a civil vendor's payments actually
+     *  count toward Civil/Structural's Budget vs Actual instead of silently landing in
+     *  "Other/Misc" (a real gap in the previous version). */
+    private fun categoryForVendor(workCategory: VendorWorkCategory): CostCategory = when (workCategory) {
+        VendorWorkCategory.CIVIL, VendorWorkCategory.STRUCTURAL, VendorWorkCategory.MASON,
+        VendorWorkCategory.CARPENTER, VendorWorkCategory.FLOORING -> CostCategory.CIVIL_STRUCTURAL
+        VendorWorkCategory.ELECTRICIAN, VendorWorkCategory.PLUMBING, VendorWorkCategory.HVAC -> CostCategory.MEP
+        VendorWorkCategory.PAINTING -> CostCategory.PAINTING
+        VendorWorkCategory.ALUMINIUM, VendorWorkCategory.FABRICATION -> CostCategory.JOINERY
+        VendorWorkCategory.OTHER -> CostCategory.OTHER_MISC
+    }
+
+    private suspend fun resolveCategory(projectId: Long, materialName: String, type: ExpenseType, vendorId: Long?): CostCategory {
+        if (type == ExpenseType.VENDOR && vendorId != null) {
+            val vendor = vendors.value.find { it.id == vendorId }
+            if (vendor != null) return categoryForVendor(vendor.workCategory)
+        }
+        return materialRepository.inferCategoryForMaterial(projectId, materialName) ?: CostCategory.OTHER_MISC
+    }
+
     fun addMaterialExpense(input: MaterialExpenseInput) {
         val currentProjectId = projectIdFlow.value ?: return
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
-            val category = if (type == ExpenseType.MATERIAL) {
-                materialRepository.inferCategoryForMaterial(currentProjectId, input.materialName) ?: CostCategory.OTHER_MISC
-            } else {
-                CostCategory.OTHER_MISC
-            }
+            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
             expenseRepository.addExpense(
                 Expense(
                     projectId = currentProjectId, date = input.date, category = category, type = type,
@@ -118,11 +141,7 @@ class ExpenseViewModel(
         val currentProjectId = projectIdFlow.value ?: return
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
-            val category = if (type == ExpenseType.MATERIAL) {
-                materialRepository.inferCategoryForMaterial(currentProjectId, input.materialName) ?: CostCategory.OTHER_MISC
-            } else {
-                CostCategory.OTHER_MISC
-            }
+            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
             expenseRepository.updateExpense(
                 original,
                 original.copy(

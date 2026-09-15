@@ -30,7 +30,7 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 com.aarush.cpm.ui.boq.BOQViewModel(container.boqRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.expense.ExpenseViewModel::class.java) ->
-                com.aarush.cpm.ui.expense.ExpenseViewModel(container.expenseRepository, container.materialRepository) as T
+                com.aarush.cpm.ui.expense.ExpenseViewModel(container.expenseRepository, container.materialRepository, container.vendorRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.vendor.VendorViewModel::class.java) ->
                 com.aarush.cpm.ui.vendor.VendorViewModel(container.vendorRepository, container.projectRepository, container.expenseRepository) as T
@@ -40,6 +40,9 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.settings.ProjectSettingsViewModel::class.java) ->
                 com.aarush.cpm.ui.settings.ProjectSettingsViewModel(container.boqRepository, container.materialRepository) as T
+
+            modelClass.isAssignableFrom(com.aarush.cpm.ui.material.MaterialStatusViewModel::class.java) ->
+                com.aarush.cpm.ui.material.MaterialStatusViewModel(container.materialRepository) as T
 
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

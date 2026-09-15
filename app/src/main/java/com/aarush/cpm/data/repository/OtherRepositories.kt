@@ -90,6 +90,7 @@ class MaterialRepository(private val db: AppDatabase) {
         val purchases = db.materialPurchaseDao().getForProject(projectId)
         val usages = db.materialUsageDao().getForProject(projectId)
         val materials = db.materialDao().getForProject(projectId)
+        val rateByName = db.materialRateCardDao().getForProject(projectId).associateBy { it.description }
 
         val materialNames = (materials.map { it.name } +
                 coefficients.map { it.materialName } +
@@ -106,25 +107,30 @@ class MaterialRepository(private val db: AppDatabase) {
                 }
             }
             val purchasedQty = purchases.filter { it.materialName == name }.sumOf { it.quantity }
-            val purchaseCost = purchases.filter { it.materialName == name }.sumOf { it.amount }
+            val expensedAmount = purchases.filter { it.materialName == name }.sumOf { it.amount }
             val usedQty = usages.filter { it.materialName == name }.sumOf { it.quantityUsed }
             val stock = CalculationEngine.currentStock(purchasedQty, usedQty)
             val balance = CalculationEngine.balanceToPurchase(required, purchasedQty)
-            val avgRate = CalculationEngine.averagePurchaseRate(purchaseCost, purchasedQty)
+            val avgRate = CalculationEngine.averagePurchaseRate(expensedAmount, purchasedQty)
             val estRemaining = CalculationEngine.estimatedRemainingCost(balance, avgRate)
             val unit = materials.find { it.name == name }?.unit ?: ""
+            val rate = rateByName[name]?.rate ?: 0.0
+            val requiredBudget = required * rate
+            val balanceHoldingAmount = requiredBudget - expensedAmount
 
             MaterialStatusRow(
                 materialName = name,
                 unit = unit,
                 requiredQuantity = required,
+                requiredBudget = requiredBudget,
                 purchasedQuantity = purchasedQty,
                 usedQuantity = usedQty,
                 currentStock = stock,
                 balanceToPurchase = balance,
-                purchaseCost = purchaseCost,
+                expensedAmount = expensedAmount,
                 averageRate = avgRate,
-                estimatedRemainingCost = estRemaining
+                estimatedRemainingCost = estRemaining,
+                balanceHoldingAmount = balanceHoldingAmount
             )
         }
     }
@@ -134,13 +140,20 @@ data class MaterialStatusRow(
     val materialName: String,
     val unit: String,
     val requiredQuantity: Double,
+    /** Required qty × this material's rate-card rate — the budgeted cost for it. */
+    val requiredBudget: Double,
     val purchasedQuantity: Double,
     val usedQuantity: Double,
     val currentStock: Double,
+    /** "Remaining Qty" in the Material Status tab — required not yet purchased. */
     val balanceToPurchase: Double,
-    val purchaseCost: Double,
+    /** Total actually spent on this material so far (sum of tagged Expense/purchase amounts). */
+    val expensedAmount: Double,
     val averageRate: Double,
-    val estimatedRemainingCost: Double
+    val estimatedRemainingCost: Double,
+    /** requiredBudget − expensedAmount: how much of this material's budget is left to spend
+     *  (negative once you've spent past what the required quantity should cost). */
+    val balanceHoldingAmount: Double
 )
 
 class VendorRepository(private val db: AppDatabase) {
