@@ -28,7 +28,13 @@ data class Expense(
     val quantity: Double = 1.0,
     val unit: String = "",
     val rate: Double,
-    val totalAmount: Double,          // quantity * rate, editable override allowed
+    /** Goods cost (quantity × rate) PLUS any freight & unloading — the full amount that
+     *  should come off this material's budget. Freight is deliberately not a separate
+     *  expense line: what you spent on cement includes getting it to site. */
+    val totalAmount: Double,
+    /** The freight/unloading portion included in totalAmount, kept separately only so the
+     *  edit form can show it back and reports can break it out if ever needed. */
+    val freightAmount: Double = 0.0,
     val paymentMode: PaymentMode,
     val paymentStatus: PaymentStatus,
     val invoiceNumber: String = "",

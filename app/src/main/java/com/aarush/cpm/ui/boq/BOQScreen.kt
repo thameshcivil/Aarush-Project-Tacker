@@ -27,7 +27,9 @@ import com.aarush.cpm.data.entity.BOQItem
 import com.aarush.cpm.data.entity.BOQNotation
 import com.aarush.cpm.data.entity.BOQUnits
 import com.aarush.cpm.data.entity.CostCategory
+import com.aarush.cpm.data.entity.MaterialCoefficient
 import com.aarush.cpm.data.repository.BOQRepository
+import com.aarush.cpm.data.repository.MaterialRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatQuantity
@@ -62,7 +64,10 @@ data class BOQItemInput(
         get() = CalculationEngine.boqDimensionalQuantity(members, perMember, length, breadth, depth)
 }
 
-class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
+class BOQViewModel(
+    private val repository: BOQRepository,
+    private val materialRepository: MaterialRepository
+) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
 
     val items: StateFlow<List<BOQItem>> = projectIdFlow
@@ -71,6 +76,12 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
 
     val notations: StateFlow<List<BOQNotation>> = projectIdFlow
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repository.observeNotations(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Coefficients drive the per-group material totals shown on group headers (cement bags,
+     *  sand cft, etc.) instead of a bare entry count. */
+    val coefficients: StateFlow<List<MaterialCoefficient>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else materialRepository.observeCoefficients(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
@@ -125,6 +136,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val boqItems by viewModel.items.collectAsState()
     val notations by viewModel.notations.collectAsState()
+    val coefficients by viewModel.coefficients.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<BOQItem?>(null) }
     var pendingDelete by remember { mutableStateOf<BOQItem?>(null) }
@@ -187,10 +199,15 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                                 onClick = { expandedMain = if (mainExpanded) expandedMain - mainKey else expandedMain + mainKey },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(mainKey, fontWeight = FontWeight.Bold)
-                                        Text("${mainItems.size} entr${if (mainItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.bodySmall)
+                                        Text(materialSummary(mainItems, coefficients), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (mainExpanded) {
+                                        IconButton(onClick = { copiedItem = mainItems.first() }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy from this group", modifier = Modifier.size(18.dp))
+                                        }
                                     }
                                     Icon(if (mainExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (mainExpanded) "Collapse" else "Expand")
                                 }
@@ -206,10 +223,15 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                                         onClick = { expandedSub = if (subExpanded) expandedSub - subFullKey else expandedSub + subFullKey },
                                         modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
                                     ) {
-                                        Row(Modifier.padding(10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
                                                 Text(subKey, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                Text("${subItems.size} entr${if (subItems.size == 1) "y" else "ies"}", style = MaterialTheme.typography.labelSmall)
+                                                Text(materialSummary(subItems, coefficients), style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            if (subExpanded) {
+                                                IconButton(onClick = { copiedItem = subItems.first() }, modifier = Modifier.size(30.dp)) {
+                                                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy from this group", modifier = Modifier.size(17.dp))
+                                                }
                                             }
                                             Icon(if (subExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (subExpanded) "Collapse" else "Expand", modifier = Modifier.size(20.dp))
                                         }
@@ -267,6 +289,24 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
             },
             onDismiss = { pendingDelete = null }
         )
+    }
+}
+
+/** Rolls a set of BOQ entries up into their derived material quantities (cement bags, sand
+ *  cft, steel kg...) via the coefficient engine — what a group header shows instead of a
+ *  bare "3 entries" count, since the quantities are the actually useful figure. */
+private fun materialSummary(items: List<BOQItem>, coefficients: List<MaterialCoefficient>): String {
+    val totals = mutableMapOf<String, Double>()
+    items.forEach { boq ->
+        coefficients.filter { it.workItemKey == boq.materialType && it.coefficientPerUnit > 0 }.forEach { coeff ->
+            val base = CalculationEngine.requiredMaterialQuantity(boq.quantity, coeff.coefficientPerUnit)
+            val withWaste = CalculationEngine.totalRequiredQuantity(base, coeff.wastePercentOverride ?: boq.wastePercent)
+            totals[coeff.materialName] = (totals[coeff.materialName] ?: 0.0) + withWaste
+        }
+    }
+    if (totals.isEmpty()) return "No material coefficients for this item"
+    return totals.entries.sortedBy { it.key }.joinToString("  •  ") { (name, qty) ->
+        "$name ${formatQuantity(qty, "")}"
     }
 }
 

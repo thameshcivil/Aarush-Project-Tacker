@@ -27,7 +27,7 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 ) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.boq.BOQViewModel::class.java) ->
-                com.aarush.cpm.ui.boq.BOQViewModel(container.boqRepository) as T
+                com.aarush.cpm.ui.boq.BOQViewModel(container.boqRepository, container.materialRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.expense.ExpenseViewModel::class.java) ->
                 com.aarush.cpm.ui.expense.ExpenseViewModel(container.expenseRepository, container.materialRepository, container.vendorRepository) as T

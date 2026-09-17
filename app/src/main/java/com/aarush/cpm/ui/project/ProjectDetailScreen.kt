@@ -153,27 +153,6 @@ fun ProjectHomeTabContent(projectId: Long, viewModel: ProjectDetailViewModel, sn
                 }
             }
         }
-        item { Text("Material Status", style = MaterialTheme.typography.titleSmall) }
-        if (state.materialStatus.isEmpty()) {
-            item { Text("No materials tracked yet — add BOQ items with a material type to see requirements.", style = MaterialTheme.typography.bodySmall) }
-        }
-        items(state.materialStatus) { m ->
-            Card {
-                Column(Modifier.padding(12.dp)) {
-                    Text(m.materialName, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Required ${formatQuantity(m.requiredQuantity, m.unit)}  •  Purchased ${formatQuantity(m.purchasedQuantity, m.unit)}  •  Stock ${formatQuantity(m.currentStock, m.unit)}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    if (m.balanceToPurchase > 0) {
-                        Text(
-                            "⚠ Balance to purchase: ${formatQuantity(m.balanceToPurchase, m.unit)} (~${formatCurrency(m.estimatedRemainingCost)})",
-                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-        }
         item { Spacer(Modifier.height(16.dp)) }
     }
 

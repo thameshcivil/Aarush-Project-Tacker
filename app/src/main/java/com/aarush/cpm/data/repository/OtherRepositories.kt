@@ -111,8 +111,11 @@ class MaterialRepository(private val db: AppDatabase) {
                 // the Expense entries tagged with that vendor instead, and its "required"
                 // figure is the vendor's contract value, not a quantity × rate — there's no
                 // meaningful quantity for a labour cost.
-                val expensedAmount = expenses.filter { it.vendorId == linkedVendor.id }.sumOf { it.totalAmount }
+                val vendorPayments = expenses.filter { it.vendorId == linkedVendor.id }
+                val expensedAmount = vendorPayments.sumOf { it.totalAmount }
                 val requiredBudget = linkedVendor.contractValue
+                val history = vendorPayments.sortedByDescending { it.date }
+                    .map { MaterialPurchaseEntry(date = it.date, quantity = it.quantity, amount = it.totalAmount) }
                 MaterialStatusRow(
                     materialName = name,
                     unit = rateByName[name]?.unit ?: "",
@@ -126,7 +129,8 @@ class MaterialRepository(private val db: AppDatabase) {
                     averageRate = 0.0,
                     estimatedRemainingCost = 0.0,
                     balanceHoldingAmount = requiredBudget - expensedAmount,
-                    isVendorLinked = true
+                    isVendorLinked = true,
+                    purchaseHistory = history
                 )
             } else {
                 // Required = sum over BOQ items whose materialType matches a coefficient row for this material.
@@ -138,8 +142,11 @@ class MaterialRepository(private val db: AppDatabase) {
                         required += CalculationEngine.totalRequiredQuantity(base, wastePct)
                     }
                 }
-                val purchasedQty = purchases.filter { it.materialName == name }.sumOf { it.quantity }
-                val expensedAmount = purchases.filter { it.materialName == name }.sumOf { it.amount }
+                val myPurchases = purchases.filter { it.materialName == name }
+                val purchasedQty = myPurchases.sumOf { it.quantity }
+                val expensedAmount = myPurchases.sumOf { it.amount }
+                val history = myPurchases.sortedByDescending { it.date }
+                    .map { MaterialPurchaseEntry(date = it.date, quantity = it.quantity, amount = it.amount) }
                 val usedQty = usages.filter { it.materialName == name }.sumOf { it.quantityUsed }
                 val stock = CalculationEngine.currentStock(purchasedQty, usedQty)
                 val balance = CalculationEngine.balanceToPurchase(required, purchasedQty)
@@ -163,7 +170,8 @@ class MaterialRepository(private val db: AppDatabase) {
                     averageRate = avgRate,
                     estimatedRemainingCost = estRemaining,
                     balanceHoldingAmount = balanceHoldingAmount,
-                    isVendorLinked = false
+                    isVendorLinked = false,
+                    purchaseHistory = history
                 )
             }
         }
@@ -192,7 +200,17 @@ data class MaterialStatusRow(
     /** True for an auto-generated "Labour Cost for <Vendor>" row — the Material Status tab
      *  shows only Required budget / Expensed amount / Balance holding for these, since qty/
      *  stock concepts don't apply to a labour cost. */
-    val isVendorLinked: Boolean = false
+    val isVendorLinked: Boolean = false,
+    /** Individual purchases/payments behind expensedAmount, newest first — shown in the
+     *  Material Status tab's detail popup. */
+    val purchaseHistory: List<MaterialPurchaseEntry> = emptyList()
+)
+
+/** One dated purchase (or vendor payment) line for the Material Status detail popup. */
+data class MaterialPurchaseEntry(
+    val date: Long,
+    val quantity: Double,
+    val amount: Double
 )
 
 class VendorRepository(private val db: AppDatabase) {

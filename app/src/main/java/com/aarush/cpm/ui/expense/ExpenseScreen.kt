@@ -49,8 +49,18 @@ data class MaterialExpenseInput(
     val quantity: Double,
     val unit: String,
     val rate: Double,
-    val freightAmount: Double? = null
+    val freightAmount: Double? = null,
+    /** Steel only: the per-diameter breakdown that was summed into quantity/rate above.
+     *  Stored in the expense's notes so the detail view can show what made up the total. */
+    val rodBreakdown: String = ""
 )
+
+/** Steel is bought by rod diameter, each at its own rate — so the Expense form offers a row
+ *  per size instead of a single qty/rate pair. */
+val STEEL_ROD_SIZES = listOf("6mm", "8mm", "10mm", "12mm", "16mm", "20mm", "25mm", "32mm")
+
+/** Materials whose name marks them as steel, triggering the per-diameter entry form. */
+fun isSteelMaterial(name: String): Boolean = name.equals("Steel", ignoreCase = true)
 
 /** Fields for a "Received" entry: money in, logged simply — Date, Mode of payment, Amount,
  *  and an optional description (e.g. "Client advance", "Milestone 2"). */
@@ -118,26 +128,23 @@ class ExpenseViewModel(
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
             val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
+            // Freight & unloading is folded INTO this material's total, not split into its own
+            // line: what you actually spent on cement is the goods cost plus the cost of
+            // getting it to site, and that whole figure is what should come off the material's
+            // budget. Quantity/rate stay as the goods figures so stock tracking (bags bought)
+            // and average-rate reporting remain truthful — only totalAmount carries the freight.
+            val freight = input.freightAmount?.takeIf { it > 0 } ?: 0.0
+            val goodsTotal = CalculationEngine.expenseTotal(input.quantity, input.rate)
             expenseRepository.addExpense(
                 Expense(
                     projectId = currentProjectId, date = input.date, category = category, type = type,
                     direction = TransactionDirection.EXPENSE, vendorId = vendorId, itemOrMaterialName = input.materialName,
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
-                    totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate), paymentMode = input.paymentMode,
-                    paymentStatus = PaymentStatus.PAID, notes = input.description
+                    totalAmount = goodsTotal + freight, freightAmount = freight, paymentMode = input.paymentMode,
+                    paymentStatus = PaymentStatus.PAID,
+                    notes = listOf(input.description, input.rodBreakdown).filter { it.isNotBlank() }.joinToString(" | ")
                 )
             )
-            val freight = input.freightAmount
-            if (freight != null && freight > 0) {
-                expenseRepository.addExpense(
-                    Expense(
-                        projectId = currentProjectId, date = input.date, category = category, type = ExpenseType.OTHER,
-                        direction = TransactionDirection.EXPENSE, vendorId = null, itemOrMaterialName = "Freight & Unloading Charges",
-                        quantity = 1.0, unit = "LS", rate = freight, totalAmount = freight, paymentMode = input.paymentMode,
-                        paymentStatus = PaymentStatus.PAID, notes = "Linked to: ${input.materialName}"
-                    )
-                )
-            }
         }
     }
 
@@ -146,13 +153,16 @@ class ExpenseViewModel(
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
             val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
+            val freight = input.freightAmount?.takeIf { it > 0 } ?: 0.0
+            val goodsTotal = CalculationEngine.expenseTotal(input.quantity, input.rate)
             expenseRepository.updateExpense(
                 original,
                 original.copy(
                     date = input.date, type = type, category = category, vendorId = vendorId, itemOrMaterialName = input.materialName,
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
-                    totalAmount = CalculationEngine.expenseTotal(input.quantity, input.rate),
-                    paymentMode = input.paymentMode, notes = input.description
+                    totalAmount = goodsTotal + freight, freightAmount = freight,
+                    paymentMode = input.paymentMode,
+                    notes = listOf(input.description, input.rodBreakdown).filter { it.isNotBlank() }.joinToString(" | ")
                 )
             )
         }
@@ -212,8 +222,8 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
     val allExpenses by viewModel.expenses.collectAsState()
     val materialRates by viewModel.materialRates.collectAsState()
     var activeDirection by remember { mutableStateOf(TransactionDirection.EXPENSE) }
-    var groupMode by remember { mutableStateOf(GroupMode.MATERIAL) }
-    var dateAscending by remember { mutableStateOf(false) }
+    var groupMode by remember { mutableStateOf(GroupMode.DATE) }
+    var dateAscending by remember { mutableStateOf(true) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingExpense by remember { mutableStateOf<Expense?>(null) }
     var pendingDelete by remember { mutableStateOf<Expense?>(null) }
@@ -380,6 +390,12 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                 Text("Description: ${expense.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
                 Text("Quantity: ${expense.quantity} ${expense.unit}", style = MaterialTheme.typography.bodySmall)
                 Text("Rate: ${formatCurrency(expense.rate)}", style = MaterialTheme.typography.bodySmall)
+                if (expense.freightAmount > 0) {
+                    Text(
+                        "Includes freight & unloading: ${formatCurrency(expense.freightAmount)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 Text("Mode of payment: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 if (expense.type == ExpenseType.VENDOR) Text("Vendor payment", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
@@ -443,20 +459,38 @@ private fun AddEditMaterialExpenseDialog(
     var dateMillis by remember { mutableStateOf(existing?.date ?: System.currentTimeMillis()) }
     var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.CASH) }
     var materialName by remember { mutableStateOf(existing?.itemOrMaterialName ?: "") }
-    var description by remember { mutableStateOf(existing?.notes ?: "") }
+    var description by remember { mutableStateOf(existing?.notes?.substringBefore(" | ") ?: "") }
     var quantity by remember { mutableStateOf(existing?.quantity?.toString() ?: "1") }
     var unit by remember { mutableStateOf(existing?.unit ?: "") }
     var rate by remember { mutableStateOf(existing?.rate?.toString() ?: "") }
-    var showFreightField by remember { mutableStateOf(false) }
-    var freightAmount by remember { mutableStateOf("") }
+    var vendorAmount by remember { mutableStateOf(existing?.totalAmount?.toString() ?: "") }
+    val rodQty = remember { mutableStateMapOf<String, String>() }
+    val rodRate = remember { mutableStateMapOf<String, String>() }
+    var showFreightField by remember { mutableStateOf(existing != null && existing.freightAmount > 0) }
+    var freightAmount by remember { mutableStateOf(existing?.freightAmount?.takeIf { it > 0 }?.toString() ?: "") }
 
     var materialMenu by remember { mutableStateOf(false) }
     var modeMenu by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    val qtyD = quantity.toDoubleOrNull() ?: 0.0
-    val rateD = rate.toDoubleOrNull() ?: 0.0
-    val total = CalculationEngine.expenseTotal(qtyD, rateD)
+    val selectedCard = materialRates.find { it.description == materialName }
+    val isVendorLine = selectedCard?.linkedVendorId != null
+    val isSteel = isSteelMaterial(materialName)
+
+    val freightD = freightAmount.toDoubleOrNull() ?: 0.0
+    // Steel totals roll up every rod size; a vendor line is a plain amount; everything else
+    // is the usual qty x rate. Freight is added on top in all cases (it's part of what the
+    // material actually cost, not a separate expense).
+    val steelTotal = STEEL_ROD_SIZES.sumOf { size ->
+        (rodQty[size]?.toDoubleOrNull() ?: 0.0) * (rodRate[size]?.toDoubleOrNull() ?: 0.0)
+    }
+    val steelQty = STEEL_ROD_SIZES.sumOf { rodQty[it]?.toDoubleOrNull() ?: 0.0 }
+    val goodsTotal = when {
+        isVendorLine -> vendorAmount.toDoubleOrNull() ?: 0.0
+        isSteel -> steelTotal
+        else -> CalculationEngine.expenseTotal(quantity.toDoubleOrNull() ?: 0.0, rate.toDoubleOrNull() ?: 0.0)
+    }
+    val grandTotal = goodsTotal + freightD
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -497,43 +531,108 @@ private fun AddEditMaterialExpenseDialog(
                 }
                 OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(quantity, { quantity = it }, label = { Text("Quantity") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                Text("Total amount: ${formatCurrency(total)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+
+                when {
+                    // A vendor payment is just "how much did I hand over" — no qty/rate/unit.
+                    isVendorLine -> {
+                        OutlinedTextField(
+                            vendorAmount, { vendorAmount = it }, label = { Text("Amount (Rs.)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    // Steel: a qty + rate pair per rod diameter.
+                    isSteel -> {
+                        Text("Rod-wise quantity & rate", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(4.dp))
+                        STEEL_ROD_SIZES.forEach { size ->
+                            val q = rodQty[size] ?: ""
+                            val r = rodRate[size] ?: ""
+                            val lineTotal = (q.toDoubleOrNull() ?: 0.0) * (r.toDoubleOrNull() ?: 0.0)
+                            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(size, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(46.dp))
+                                OutlinedTextField(
+                                    q, { rodQty[size] = it }, label = { Text("Qty") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                OutlinedTextField(
+                                    r, { rodRate[size] = it }, label = { Text("Rate") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (lineTotal > 0) {
+                                Text(
+                                    "  ${formatCurrency(lineTotal)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(start = 46.dp, bottom = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        OutlinedTextField(quantity, { quantity = it }, label = { Text("Quantity") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(rate, { rate = it }, label = { Text("Rate (Rs.)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                    }
+                }
+
+                if (!isVendorLine) {
+                    Spacer(Modifier.height(10.dp))
+                    if (!showFreightField) {
+                        OutlinedButton(onClick = { showFreightField = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add Freight & Unloading Charges")
+                        }
+                    } else {
+                        OutlinedTextField(
+                            freightAmount, { freightAmount = it }, label = { Text("Freight & Unloading Charges (Rs.)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        TextButton(onClick = { showFreightField = false; freightAmount = "" }) { Text("Remove") }
+                    }
+                }
 
                 Spacer(Modifier.height(10.dp))
-                if (!showFreightField) {
-                    OutlinedButton(onClick = { showFreightField = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add Freight & Unloading Charges")
-                    }
-                } else {
-                    OutlinedTextField(
-                        freightAmount, { freightAmount = it }, label = { Text("Freight & Unloading Charges (₹)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(onClick = { showFreightField = false; freightAmount = "" }) { Text("Remove") }
+                if (freightD > 0) {
+                    Text("Goods: ${formatCurrency(goodsTotal)}  +  Freight: ${formatCurrency(freightD)}", style = MaterialTheme.typography.bodySmall)
                 }
+                Text("Total amount: ${formatCurrency(grandTotal)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                if (materialName.isNotBlank() && qtyD > 0 && rateD >= 0) {
-                    onSubmit(
-                        MaterialExpenseInput(
-                            date = dateMillis, paymentMode = paymentMode, materialName = materialName,
-                            description = description, quantity = qtyD, unit = unit, rate = rateD,
-                            freightAmount = freightAmount.toDoubleOrNull()
-                        )
-                    )
+                if (materialName.isBlank() || grandTotal <= 0) return@TextButton
+                val breakdown = if (isSteel) {
+                    STEEL_ROD_SIZES.filter { (rodQty[it]?.toDoubleOrNull() ?: 0.0) > 0 }
+                        .joinToString(", ") { "$it: ${rodQty[it]} @ ${rodRate[it] ?: "0"}" }
+                } else ""
+                val finalQty = when {
+                    isVendorLine -> 1.0
+                    isSteel -> steelQty
+                    else -> quantity.toDoubleOrNull() ?: 0.0
                 }
+                val finalRate = when {
+                    isVendorLine -> vendorAmount.toDoubleOrNull() ?: 0.0
+                    isSteel -> if (steelQty > 0) steelTotal / steelQty else 0.0
+                    else -> rate.toDoubleOrNull() ?: 0.0
+                }
+                val finalUnit = when {
+                    isVendorLine -> "LS"
+                    isSteel -> "kg"
+                    else -> unit
+                }
+                onSubmit(
+                    MaterialExpenseInput(
+                        date = dateMillis, paymentMode = paymentMode, materialName = materialName,
+                        description = description, quantity = finalQty, unit = finalUnit, rate = finalRate,
+                        freightAmount = freightAmount.toDoubleOrNull(), rodBreakdown = breakdown
+                    )
+                )
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
