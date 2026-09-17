@@ -48,6 +48,7 @@ private val projectTabs = listOf(
 @Composable
 fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> Unit) {
     var selectedTab by remember { mutableStateOf<ProjectTab>(ProjectTab.Home) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val homeViewModel: ProjectDetailViewModel = viewModel(factory = factory)
     val materialStatusViewModel: MaterialStatusViewModel = viewModel(factory = factory)
@@ -65,15 +66,16 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
         },
         bottomBar = {
             ScrollableProjectBottomBar(selectedTab = selectedTab, onSelect = { selectedTab = it })
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (selectedTab) {
-                ProjectTab.Home -> ProjectHomeTabContent(projectId = projectId, viewModel = homeViewModel)
+                ProjectTab.Home -> ProjectHomeTabContent(projectId = projectId, viewModel = homeViewModel, snackbarHostState = snackbarHostState)
                 ProjectTab.MaterialStatus -> MaterialStatusTabContent(projectId = projectId, viewModel = materialStatusViewModel)
-                ProjectTab.BOQ -> BOQTabContent(projectId = projectId, viewModel = boqViewModel)
-                ProjectTab.Expenses -> ExpenseTabContent(projectId = projectId, viewModel = expenseViewModel)
-                ProjectTab.Vendors -> VendorTabContent(projectId = projectId, viewModel = vendorViewModel)
+                ProjectTab.BOQ -> BOQTabContent(projectId = projectId, viewModel = boqViewModel, snackbarHostState = snackbarHostState)
+                ProjectTab.Expenses -> ExpenseTabContent(projectId = projectId, viewModel = expenseViewModel, snackbarHostState = snackbarHostState)
+                ProjectTab.Vendors -> VendorTabContent(projectId = projectId, viewModel = vendorViewModel, snackbarHostState = snackbarHostState)
                 ProjectTab.Settings -> ProjectSettingsTabContent(projectId = projectId, viewModel = settingsViewModel)
             }
         }

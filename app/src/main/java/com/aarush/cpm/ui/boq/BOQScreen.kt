@@ -9,6 +9,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -27,7 +29,9 @@ import com.aarush.cpm.data.entity.BOQUnits
 import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.repository.BOQRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatQuantity
+import com.aarush.cpm.ui.common.showUndoDeleteSnackbar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -104,21 +108,34 @@ class BOQViewModel(private val repository: BOQRepository) : ViewModel() {
     }
 
     fun deleteItem(item: BOQItem) { viewModelScope.launch { repository.deleteItem(item) } }
+
+    /** Re-inserts a previously deleted item for Undo. The original row id is dropped (0 =
+     *  autogenerate) since that id is gone from the table — the restored row is identical in
+     *  every other respect. */
+    fun restoreItem(item: BOQItem) {
+        viewModelScope.launch { repository.addItem(item.copy(id = 0)) }
+    }
 }
 
 private enum class BOQSortMode(val label: String) { NOTATIONS("Notations"), DESCRIPTION("Description") }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
+fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: SnackbarHostState) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val boqItems by viewModel.items.collectAsState()
     val notations by viewModel.notations.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<BOQItem?>(null) }
+    var pendingDelete by remember { mutableStateOf<BOQItem?>(null) }
+    /** The "clipboard": measurements copied from one row, offered as the starting values for
+     *  the next Add. Holds the whole item so the Add dialog can prefill nos/L/B/D (and unit)
+     *  — you then change only what differs, e.g. the depth. */
+    var copiedItem by remember { mutableStateOf<BOQItem?>(null) }
     var sortMode by remember { mutableStateOf(BOQSortMode.NOTATIONS) }
     var expandedMain by remember { mutableStateOf(setOf<String>()) }
     var expandedSub by remember { mutableStateOf(setOf<String>()) }
+    val scope = rememberCoroutineScope()
 
     fun mainKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.itemCode else item.description.ifBlank { item.itemCode }
     fun subKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.description.ifBlank { item.itemCode } else item.itemCode
@@ -131,6 +148,27 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BOQSortMode.values().forEach { mode ->
                         FilterChip(selected = sortMode == mode, onClick = { sortMode = mode }, label = { Text(mode.label) })
+                    }
+                }
+            }
+
+            copiedItem?.let { copied ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Copied measurements", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${copied.itemCode} — M ${formatQuantity(copied.numberOfMembers, "")} • L ${copied.length} • B ${copied.breadth} • D ${copied.depth}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        TextButton(onClick = { showAddDialog = true }) { Text("Paste") }
+                        IconButton(onClick = { copiedItem = null }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear copied", modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -179,7 +217,12 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
                                 }
                                 if (subExpanded) {
                                     items(subItems, key = { it.id }) { boqItem ->
-                                        BOQItemCompactRow(item = boqItem, onEdit = { editingItem = boqItem }, onDelete = { viewModel.deleteItem(boqItem) })
+                                        BOQItemCompactRow(
+                                            item = boqItem,
+                                            onEdit = { editingItem = boqItem },
+                                            onCopy = { copiedItem = boqItem },
+                                            onDelete = { pendingDelete = boqItem }
+                                        )
                                     }
                                 }
                             }
@@ -200,6 +243,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
         AddEditBOQItemDialog(
             notations = notations,
             existing = null,
+            template = copiedItem,
             onDismiss = { showAddDialog = false },
             onSubmit = { input -> viewModel.addItem(input); showAddDialog = false }
         )
@@ -208,17 +252,29 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel) {
         AddEditBOQItemDialog(
             notations = notations,
             existing = item,
+            template = null,
             onDismiss = { editingItem = null },
             onSubmit = { input -> viewModel.updateItem(item, input); editingItem = null }
+        )
+    }
+    pendingDelete?.let { item ->
+        ConfirmDeleteDialog(
+            itemLabel = "this ${item.itemCode} entry",
+            onConfirm = {
+                pendingDelete = null
+                viewModel.deleteItem(item)
+                scope.showUndoDeleteSnackbar(snackbarHostState, "BOQ entry deleted") { viewModel.restoreItem(item) }
+            },
+            onDismiss = { pendingDelete = null }
         )
     }
 }
 
 /** One BOQ entry's compact row — per request, only Members / Per Member / L / B / D / Qty,
  *  no item code, description, category, waste, or remark repeated here (they're already the
- *  group headers this row sits under). Tap the row to edit; the trailing icon deletes. */
+ *  group headers this row sits under). Tap the row to edit; the trailing icons copy/delete. */
 @Composable
-private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit) {
     Card(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
         Row(Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(
@@ -231,6 +287,9 @@ private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onDelete: () ->
                 CompactStat("B", item.breadth)
                 CompactStat("D", item.depth)
                 CompactStat("Qty", item.quantity, item.unit)
+            }
+            IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements", modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
@@ -252,19 +311,24 @@ private fun CompactStat(label: String, value: Double, unit: String = "") {
 private fun AddEditBOQItemDialog(
     notations: List<BOQNotation>,
     existing: BOQItem?,
+    template: BOQItem?,
     onDismiss: () -> Unit,
     onSubmit: (BOQItemInput) -> Unit
 ) {
+    // `existing` = editing that row. `template` = pasting copied measurements into a NEW row:
+    // the numbers prefill so you only change what differs (e.g. the depth), but the item code
+    // and description are left blank since you're usually pasting into a *different* work item.
+    val prefill = existing ?: template
     var code by remember { mutableStateOf(existing?.itemCode ?: "") }
-    var category by remember { mutableStateOf(existing?.category ?: CostCategory.CIVIL_STRUCTURAL) }
+    var category by remember { mutableStateOf(prefill?.category ?: CostCategory.CIVIL_STRUCTURAL) }
     var description by remember { mutableStateOf(existing?.description ?: "") }
-    var unit by remember { mutableStateOf(existing?.unit ?: BOQUnits.OPTIONS.first()) }
-    var members by remember { mutableStateOf(existing?.numberOfMembers?.takeIf { it != 1.0 }?.toString() ?: "") }
-    var perMember by remember { mutableStateOf(existing?.perMember?.takeIf { it != 1.0 }?.toString() ?: "") }
-    var length by remember { mutableStateOf(existing?.length?.takeIf { it != 0.0 }?.toString() ?: "") }
-    var breadth by remember { mutableStateOf(existing?.breadth?.takeIf { it != 0.0 }?.toString() ?: "") }
-    var depth by remember { mutableStateOf(existing?.depth?.takeIf { it != 0.0 }?.toString() ?: "") }
-    var waste by remember { mutableStateOf(existing?.wastePercent?.toString() ?: "3") }
+    var unit by remember { mutableStateOf(prefill?.unit ?: BOQUnits.OPTIONS.first()) }
+    var members by remember { mutableStateOf(prefill?.numberOfMembers?.takeIf { it != 1.0 }?.toString() ?: "") }
+    var perMember by remember { mutableStateOf(prefill?.perMember?.takeIf { it != 1.0 }?.toString() ?: "") }
+    var length by remember { mutableStateOf(prefill?.length?.takeIf { it != 0.0 }?.toString() ?: "") }
+    var breadth by remember { mutableStateOf(prefill?.breadth?.takeIf { it != 0.0 }?.toString() ?: "") }
+    var depth by remember { mutableStateOf(prefill?.depth?.takeIf { it != 0.0 }?.toString() ?: "") }
+    var waste by remember { mutableStateOf(prefill?.wastePercent?.toString() ?: "3") }
     var materialType by remember { mutableStateOf(existing?.materialType ?: "") }
     var remark by remember { mutableStateOf(existing?.notes ?: "") }
     var categoryMenuExpanded by remember { mutableStateOf(false) }

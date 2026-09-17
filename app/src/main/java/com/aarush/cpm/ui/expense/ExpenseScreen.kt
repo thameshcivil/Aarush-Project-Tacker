@@ -1,6 +1,7 @@
 package com.aarush.cpm.ui.expense
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,8 +27,10 @@ import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.MaterialRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatDate
+import com.aarush.cpm.ui.common.showUndoDeleteSnackbar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -94,9 +97,10 @@ class ExpenseViewModel(
      *  "Other/Misc" (a real gap in the previous version). */
     private fun categoryForVendor(workCategory: VendorWorkCategory): CostCategory = when (workCategory) {
         VendorWorkCategory.CIVIL, VendorWorkCategory.STRUCTURAL, VendorWorkCategory.MASON,
-        VendorWorkCategory.CARPENTER, VendorWorkCategory.FLOORING -> CostCategory.CIVIL_STRUCTURAL
+        VendorWorkCategory.CARPENTER -> CostCategory.CIVIL_STRUCTURAL
         VendorWorkCategory.ELECTRICIAN, VendorWorkCategory.PLUMBING, VendorWorkCategory.HVAC -> CostCategory.MEP
         VendorWorkCategory.PAINTING -> CostCategory.PAINTING
+        VendorWorkCategory.FLOORING -> CostCategory.TILING
         VendorWorkCategory.ALUMINIUM, VendorWorkCategory.FABRICATION -> CostCategory.JOINERY
         VendorWorkCategory.OTHER -> CostCategory.OTHER_MISC
     }
@@ -182,21 +186,39 @@ class ExpenseViewModel(
     }
 
     fun deleteExpense(expense: Expense) { viewModelScope.launch { expenseRepository.deleteExpense(expense) } }
+
+    /** Re-inserts a deleted expense for Undo — id dropped so Room assigns a fresh one. The
+     *  repository's normal add path runs, so material-purchase and vendor-payable side
+     *  effects are re-applied too, exactly as when it was first entered. */
+    fun restoreExpense(expense: Expense) {
+        viewModelScope.launch { expenseRepository.addExpense(expense.copy(id = 0)) }
+    }
 }
 
 private enum class GroupMode { MATERIAL, DATE }
 
+@Composable
+private fun DateOrderToggle(ascending: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FilterChip(selected = !ascending, onClick = { onToggle(false) }, label = { Text("Newest first") })
+        FilterChip(selected = ascending, onClick = { onToggle(true) }, label = { Text("Oldest first") })
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
+fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHostState: SnackbarHostState) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val allExpenses by viewModel.expenses.collectAsState()
     val materialRates by viewModel.materialRates.collectAsState()
     var activeDirection by remember { mutableStateOf(TransactionDirection.EXPENSE) }
     var groupMode by remember { mutableStateOf(GroupMode.MATERIAL) }
+    var dateAscending by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingExpense by remember { mutableStateOf<Expense?>(null) }
+    var pendingDelete by remember { mutableStateOf<Expense?>(null) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
+    val scope = rememberCoroutineScope()
 
     val filtered = allExpenses.filter { it.direction == activeDirection }
 
@@ -208,13 +230,24 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
             }
 
             if (activeDirection == TransactionDirection.EXPENSE) {
-                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     Text("Sort by:", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.width(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = groupMode == GroupMode.MATERIAL, onClick = { groupMode = GroupMode.MATERIAL }, label = { Text("Material") })
                         FilterChip(selected = groupMode == GroupMode.DATE, onClick = { groupMode = GroupMode.DATE }, label = { Text("Date") })
                     }
+                    if (groupMode == GroupMode.DATE) {
+                        Spacer(Modifier.width(8.dp))
+                        DateOrderToggle(ascending = dateAscending, onToggle = { dateAscending = it })
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            } else {
+                Row(Modifier.padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Sort by date:", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(8.dp))
+                    DateOrderToggle(ascending = dateAscending, onToggle = { dateAscending = it })
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -224,9 +257,10 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
                     Text(if (activeDirection == TransactionDirection.EXPENSE) "No expenses yet. Tap + to add spending." else "No amounts received yet. Tap + to log one.")
                 }
             } else if (activeDirection == TransactionDirection.RECEIVED) {
+                val sortedReceived = if (dateAscending) filtered.sortedBy { it.date } else filtered.sortedByDescending { it.date }
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(filtered.sortedByDescending { it.date }, key = { it.id }) { e ->
-                        ReceivedItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { viewModel.deleteExpense(e) })
+                    items(sortedReceived, key = { it.id }) { e ->
+                        ReceivedItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { pendingDelete = e })
                     }
                     item { Spacer(Modifier.height(72.dp)) }
                 }
@@ -235,7 +269,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
                     GroupMode.MATERIAL -> filtered.groupBy { it.itemOrMaterialName }.toSortedMap()
                     GroupMode.DATE -> filtered
                         .groupBy { it.date / 86_400_000L } // group by calendar day, not the display string
-                        .toSortedMap(compareByDescending { it })
+                        .toSortedMap(if (dateAscending) compareBy { it } else compareByDescending { it })
                         .mapKeys { (dayBucket, _) -> formatDate(dayBucket * 86_400_000L) }
                 }
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -257,8 +291,9 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
                             }
                         }
                         if (isExpanded) {
-                            items(groupItems.sortedByDescending { it.date }, key = { it.id }) { e ->
-                                ExpenseItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { viewModel.deleteExpense(e) })
+                            val sortedGroupItems = if (dateAscending) groupItems.sortedBy { it.date } else groupItems.sortedByDescending { it.date }
+                            items(sortedGroupItems, key = { it.id }) { e ->
+                                ExpenseItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { pendingDelete = e })
                             }
                         }
                     }
@@ -302,6 +337,17 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel) {
                 onSubmit = { input -> viewModel.updateReceived(expense, input); editingExpense = null }
             )
         }
+    }
+    pendingDelete?.let { expense ->
+        ConfirmDeleteDialog(
+            itemLabel = "\"${expense.itemOrMaterialName}\"",
+            onConfirm = {
+                pendingDelete = null
+                viewModel.deleteExpense(expense)
+                scope.showUndoDeleteSnackbar(snackbarHostState, "Entry deleted") { viewModel.restoreExpense(expense) }
+            },
+            onDismiss = { pendingDelete = null }
+        )
     }
 }
 

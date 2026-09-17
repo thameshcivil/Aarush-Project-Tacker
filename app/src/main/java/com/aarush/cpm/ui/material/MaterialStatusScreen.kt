@@ -65,16 +65,26 @@ private fun MaterialStatusCard(row: MaterialStatusRow) {
         Column(Modifier.padding(12.dp)) {
             Text(row.materialName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            StatRow("Required qty", formatQuantity(row.requiredQuantity, row.unit))
-            StatRow("Required budget", formatCurrency(row.requiredBudget))
-            StatRow("Purchased qty", formatQuantity(row.purchasedQuantity, row.unit))
-            StatRow("Remaining qty", formatQuantity(row.balanceToPurchase, row.unit))
-            StatRow("Stock", formatQuantity(row.currentStock, row.unit))
-            StatRow("Expensed amount", formatCurrency(row.expensedAmount))
-            StatRow(
-                "Balance holding amount", formatCurrency(row.balanceHoldingAmount),
-                color = if (row.balanceHoldingAmount < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-            )
+            if (row.isVendorLinked) {
+                // A labour-cost line has no meaningful quantity/stock — just budget vs spend.
+                StatRow("Required budget", formatCurrency(row.requiredBudget))
+                StatRow("Expensed amount", formatCurrency(row.expensedAmount))
+                StatRow(
+                    "Balance holding amount", formatCurrency(row.balanceHoldingAmount),
+                    color = if (row.balanceHoldingAmount < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+            } else {
+                StatRow("Required qty", formatQuantity(row.requiredQuantity, row.unit))
+                StatRow("Required budget", formatCurrency(row.requiredBudget))
+                StatRow("Purchased qty", formatQuantity(row.purchasedQuantity, row.unit))
+                StatRow("Remaining qty", formatQuantity(row.balanceToPurchase, row.unit))
+                StatRow("Stock", formatQuantity(row.currentStock, row.unit))
+                StatRow("Expensed amount", formatCurrency(row.expensedAmount))
+                StatRow(
+                    "Balance holding amount", formatCurrency(row.balanceHoldingAmount),
+                    color = if (row.balanceHoldingAmount < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }

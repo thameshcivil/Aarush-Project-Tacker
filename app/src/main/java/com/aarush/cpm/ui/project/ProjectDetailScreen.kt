@@ -20,9 +20,11 @@ import com.aarush.cpm.data.entity.MaterialUsage
 import com.aarush.cpm.data.entity.ProjectAreaComponent
 import com.aarush.cpm.data.repository.*
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatPercent
 import com.aarush.cpm.ui.common.formatQuantity
+import com.aarush.cpm.ui.common.showUndoDeleteSnackbar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,10 +101,12 @@ class ProjectDetailViewModel(
  *  budget-vs-actual by category, and material status. No Scaffold of its own — this is
  *  embedded as one tab's body inside ProjectScreen's shared Scaffold/bottom bar. */
 @Composable
-fun ProjectHomeTabContent(projectId: Long, viewModel: ProjectDetailViewModel) {
+fun ProjectHomeTabContent(projectId: Long, viewModel: ProjectDetailViewModel, snackbarHostState: SnackbarHostState) {
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val state by viewModel.uiState.collectAsState()
     var showAreaDialog by remember { mutableStateOf(false) }
+    var pendingDeleteComponent by remember { mutableStateOf<ProjectAreaComponent?>(null) }
+    val scope = rememberCoroutineScope()
 
     if (state.isLoading || state.summary == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -179,7 +183,20 @@ fun ProjectHomeTabContent(projectId: Long, viewModel: ProjectDetailViewModel) {
             onDismiss = { showAreaDialog = false },
             onAdd = { label, area, rate -> viewModel.addAreaComponent(label, area, rate) },
             onUpdate = { comp, label, area, rate -> viewModel.updateAreaComponent(comp, label, area, rate) },
-            onDelete = { comp -> viewModel.deleteAreaComponent(comp) }
+            onDelete = { comp -> pendingDeleteComponent = comp }
+        )
+    }
+    pendingDeleteComponent?.let { comp ->
+        ConfirmDeleteDialog(
+            itemLabel = "\"${comp.label}\"",
+            onConfirm = {
+                pendingDeleteComponent = null
+                viewModel.deleteAreaComponent(comp)
+                scope.showUndoDeleteSnackbar(snackbarHostState, "Area removed") {
+                    viewModel.addAreaComponent(comp.label, comp.areaSqft, comp.ratePerSqft)
+                }
+            },
+            onDismiss = { pendingDeleteComponent = null }
         )
     }
 }

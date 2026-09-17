@@ -3,7 +3,7 @@ package com.aarush.cpm.data.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-enum class CostCategory { CIVIL_STRUCTURAL, MEP, PAINTING, JOINERY, OTHER_MISC }
+enum class CostCategory { CIVIL_STRUCTURAL, MEP, PAINTING, JOINERY, TILING, OTHER_MISC }
 
 /**
  * One row per project per category. Holds the thumb-rule % of total project value,

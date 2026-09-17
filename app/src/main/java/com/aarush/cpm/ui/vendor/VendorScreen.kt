@@ -29,8 +29,10 @@ import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatDate
+import com.aarush.cpm.ui.common.showUndoDeleteSnackbar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -95,16 +97,36 @@ class VendorViewModel(
     }
 
     fun deleteVendor(vendor: Vendor) { viewModelScope.launch { vendorRepository.deleteVendor(vendor) } }
+
+    /** Re-inserts a deleted vendor for Undo, re-running the normal add path so its linked
+     *  "Labour Cost for <Vendor>" material row is recreated too. Note the restored vendor
+     *  gets a new id, so any expenses that were tagged to the old id stay orphaned — an
+     *  accepted limitation of undo here rather than a silent, partial re-link. */
+    fun restoreVendor(vendor: Vendor) {
+        val currentProjectId = projectIdFlow.value ?: return
+        viewModelScope.launch {
+            val project = projectRepository.getById(currentProjectId)
+            vendorRepository.addVendor(
+                projectId = currentProjectId, name = vendor.name, contact = vendor.contact,
+                workCategory = vendor.workCategory, rateType = vendor.rateType, rate = vendor.rate,
+                quantity = vendor.quantity, projectValue = project?.projectValue ?: 0.0,
+                startDate = vendor.startDate, endDate = vendor.endDate,
+                paymentTerms = vendor.paymentTerms, notes = vendor.notes
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VendorTabContent(projectId: Long, viewModel: VendorViewModel) {
+fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostState: SnackbarHostState) {
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val vendors by viewModel.vendors.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingVendor by remember { mutableStateOf<Vendor?>(null) }
+    var pendingDelete by remember { mutableStateOf<Vendor?>(null) }
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize()) {
         if (vendors.isEmpty()) {
@@ -115,7 +137,7 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel) {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(vendors, key = { it.id }) { v ->
                     val payments = expenses.filter { it.vendorId == v.id }.sortedByDescending { it.date }
-                    VendorCard(vendor = v, payments = payments, onEdit = { editingVendor = v }, onDelete = { viewModel.deleteVendor(v) })
+                    VendorCard(vendor = v, payments = payments, onEdit = { editingVendor = v }, onDelete = { pendingDelete = v })
                 }
                 item { Spacer(Modifier.height(72.dp)) }
             }
@@ -138,6 +160,17 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel) {
             viewModel.updateVendor(vendor, input)
             editingVendor = null
         })
+    }
+    pendingDelete?.let { vendor ->
+        ConfirmDeleteDialog(
+            itemLabel = "vendor \"${vendor.name}\"",
+            onConfirm = {
+                pendingDelete = null
+                viewModel.deleteVendor(vendor)
+                scope.showUndoDeleteSnackbar(snackbarHostState, "Vendor deleted") { viewModel.restoreVendor(vendor) }
+            },
+            onDismiss = { pendingDelete = null }
+        )
     }
 }
 

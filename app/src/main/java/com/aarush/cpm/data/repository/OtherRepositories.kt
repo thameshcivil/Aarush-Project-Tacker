@@ -90,48 +90,82 @@ class MaterialRepository(private val db: AppDatabase) {
         val purchases = db.materialPurchaseDao().getForProject(projectId)
         val usages = db.materialUsageDao().getForProject(projectId)
         val materials = db.materialDao().getForProject(projectId)
-        val rateByName = db.materialRateCardDao().getForProject(projectId).associateBy { it.description }
+        val rateCards = db.materialRateCardDao().getForProject(projectId)
+        val rateByName = rateCards.associateBy { it.description }
+        val vendors = db.vendorDao().getForProject(projectId)
+        val expenses = db.expenseDao().getForProject(projectId).filter { it.direction == TransactionDirection.EXPENSE }
 
         val materialNames = (materials.map { it.name } +
                 coefficients.map { it.materialName } +
-                purchases.map { it.materialName }).distinct()
+                purchases.map { it.materialName } +
+                rateCards.filter { it.linkedVendorId != null }.map { it.description }).distinct()
 
         return materialNames.map { name ->
-            // Required = sum over BOQ items whose materialType matches a coefficient row for this material.
-            var required = 0.0
-            coefficients.filter { it.materialName == name }.forEach { coeff ->
-                boqItems.filter { it.materialType == coeff.workItemKey }.forEach { boq ->
-                    val base = CalculationEngine.requiredMaterialQuantity(boq.quantity, coeff.coefficientPerUnit)
-                    val wastePct = coeff.wastePercentOverride ?: boq.wastePercent
-                    required += CalculationEngine.totalRequiredQuantity(base, wastePct)
-                }
-            }
-            val purchasedQty = purchases.filter { it.materialName == name }.sumOf { it.quantity }
-            val expensedAmount = purchases.filter { it.materialName == name }.sumOf { it.amount }
-            val usedQty = usages.filter { it.materialName == name }.sumOf { it.quantityUsed }
-            val stock = CalculationEngine.currentStock(purchasedQty, usedQty)
-            val balance = CalculationEngine.balanceToPurchase(required, purchasedQty)
-            val avgRate = CalculationEngine.averagePurchaseRate(expensedAmount, purchasedQty)
-            val estRemaining = CalculationEngine.estimatedRemainingCost(balance, avgRate)
-            val unit = materials.find { it.name == name }?.unit ?: ""
-            val rate = rateByName[name]?.rate ?: 0.0
-            val requiredBudget = required * rate
-            val balanceHoldingAmount = requiredBudget - expensedAmount
+            val linkedVendor = rateByName[name]?.linkedVendorId?.let { id -> vendors.find { it.id == id } }
 
-            MaterialStatusRow(
-                materialName = name,
-                unit = unit,
-                requiredQuantity = required,
-                requiredBudget = requiredBudget,
-                purchasedQuantity = purchasedQty,
-                usedQuantity = usedQty,
-                currentStock = stock,
-                balanceToPurchase = balance,
-                expensedAmount = expensedAmount,
-                averageRate = avgRate,
-                estimatedRemainingCost = estRemaining,
-                balanceHoldingAmount = balanceHoldingAmount
-            )
+            if (linkedVendor != null) {
+                // A vendor-linked "material" line (e.g. "Labour Cost for <Vendor>") isn't a
+                // real stock material — it never gets a MaterialPurchase row (vendor payments
+                // are tagged with vendorId, not tracked as purchases), so pulling its expensed
+                // amount from `purchases` would always read zero. Its actual spend lives in
+                // the Expense entries tagged with that vendor instead, and its "required"
+                // figure is the vendor's contract value, not a quantity × rate — there's no
+                // meaningful quantity for a labour cost.
+                val expensedAmount = expenses.filter { it.vendorId == linkedVendor.id }.sumOf { it.totalAmount }
+                val requiredBudget = linkedVendor.contractValue
+                MaterialStatusRow(
+                    materialName = name,
+                    unit = rateByName[name]?.unit ?: "",
+                    requiredQuantity = 0.0,
+                    requiredBudget = requiredBudget,
+                    purchasedQuantity = 0.0,
+                    usedQuantity = 0.0,
+                    currentStock = 0.0,
+                    balanceToPurchase = 0.0,
+                    expensedAmount = expensedAmount,
+                    averageRate = 0.0,
+                    estimatedRemainingCost = 0.0,
+                    balanceHoldingAmount = requiredBudget - expensedAmount,
+                    isVendorLinked = true
+                )
+            } else {
+                // Required = sum over BOQ items whose materialType matches a coefficient row for this material.
+                var required = 0.0
+                coefficients.filter { it.materialName == name }.forEach { coeff ->
+                    boqItems.filter { it.materialType == coeff.workItemKey }.forEach { boq ->
+                        val base = CalculationEngine.requiredMaterialQuantity(boq.quantity, coeff.coefficientPerUnit)
+                        val wastePct = coeff.wastePercentOverride ?: boq.wastePercent
+                        required += CalculationEngine.totalRequiredQuantity(base, wastePct)
+                    }
+                }
+                val purchasedQty = purchases.filter { it.materialName == name }.sumOf { it.quantity }
+                val expensedAmount = purchases.filter { it.materialName == name }.sumOf { it.amount }
+                val usedQty = usages.filter { it.materialName == name }.sumOf { it.quantityUsed }
+                val stock = CalculationEngine.currentStock(purchasedQty, usedQty)
+                val balance = CalculationEngine.balanceToPurchase(required, purchasedQty)
+                val avgRate = CalculationEngine.averagePurchaseRate(expensedAmount, purchasedQty)
+                val estRemaining = CalculationEngine.estimatedRemainingCost(balance, avgRate)
+                val unit = materials.find { it.name == name }?.unit ?: ""
+                val rate = rateByName[name]?.rate ?: 0.0
+                val requiredBudget = required * rate
+                val balanceHoldingAmount = requiredBudget - expensedAmount
+
+                MaterialStatusRow(
+                    materialName = name,
+                    unit = unit,
+                    requiredQuantity = required,
+                    requiredBudget = requiredBudget,
+                    purchasedQuantity = purchasedQty,
+                    usedQuantity = usedQty,
+                    currentStock = stock,
+                    balanceToPurchase = balance,
+                    expensedAmount = expensedAmount,
+                    averageRate = avgRate,
+                    estimatedRemainingCost = estRemaining,
+                    balanceHoldingAmount = balanceHoldingAmount,
+                    isVendorLinked = false
+                )
+            }
         }
     }
 }
@@ -140,20 +174,25 @@ data class MaterialStatusRow(
     val materialName: String,
     val unit: String,
     val requiredQuantity: Double,
-    /** Required qty × this material's rate-card rate — the budgeted cost for it. */
+    /** Required qty × this material's rate-card rate — the budgeted cost for it. For
+     *  vendor-linked rows this is the vendor's contract value instead. */
     val requiredBudget: Double,
     val purchasedQuantity: Double,
     val usedQuantity: Double,
     val currentStock: Double,
     /** "Remaining Qty" in the Material Status tab — required not yet purchased. */
     val balanceToPurchase: Double,
-    /** Total actually spent on this material so far (sum of tagged Expense/purchase amounts). */
+    /** Total actually spent so far — sum of tagged purchases for a real material, or sum of
+     *  Expense entries tagged with the vendor for a vendor-linked row. */
     val expensedAmount: Double,
     val averageRate: Double,
     val estimatedRemainingCost: Double,
-    /** requiredBudget − expensedAmount: how much of this material's budget is left to spend
-     *  (negative once you've spent past what the required quantity should cost). */
-    val balanceHoldingAmount: Double
+    /** requiredBudget − expensedAmount: how much budget is left (negative once overspent). */
+    val balanceHoldingAmount: Double,
+    /** True for an auto-generated "Labour Cost for <Vendor>" row — the Material Status tab
+     *  shows only Required budget / Expensed amount / Balance holding for these, since qty/
+     *  stock concepts don't apply to a labour cost. */
+    val isVendorLinked: Boolean = false
 )
 
 class VendorRepository(private val db: AppDatabase) {
