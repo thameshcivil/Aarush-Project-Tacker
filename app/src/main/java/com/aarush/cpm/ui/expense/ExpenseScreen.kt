@@ -27,6 +27,16 @@ import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.MaterialRepository
 import com.aarush.cpm.data.repository.VendorRepository
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.domain.calculation.CategoryRules
+import com.aarush.cpm.ui.common.AppCard
+import com.aarush.cpm.ui.common.EmptyState
+import com.aarush.cpm.ui.common.MetricRow
+import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.common.formatCurrencyShort
+import com.aarush.cpm.ui.common.localDayOf
+import com.aarush.cpm.ui.common.pickerMillisFromStored
+import com.aarush.cpm.ui.common.storedMillisFromPicker
+import com.aarush.cpm.ui.theme.SiteTheme
 import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatCurrency
 import com.aarush.cpm.ui.common.formatDate
@@ -52,8 +62,25 @@ data class MaterialExpenseInput(
     val freightAmount: Double? = null,
     /** Steel only: the per-diameter breakdown that was summed into quantity/rate above.
      *  Stored in the expense's notes so the detail view can show what made up the total. */
-    val rodBreakdown: String = ""
+    val rodBreakdown: String = "",
+    /** null = infer automatically (BOQ trace → name keywords → Other/Misc). */
+    val categoryOverride: CostCategory? = null
 )
+
+private const val RODS_PREFIX = "Rods: "
+private val rodRegex = Regex("""(\d+mm):\s*([\d.]+)\s*@\s*([\d.]+)""")
+
+/** Notes are stored as "description | Rods: 8mm: 120 @ 70, …". Older entries stored the
+ *  breakdown without the prefix — both are recognised. */
+internal fun splitExpenseNotes(notes: String): Pair<String, String> {
+    val parts = notes.split(" | ")
+    val rods = parts.firstOrNull { it.startsWith(RODS_PREFIX) || rodRegex.containsMatchIn(it) }
+    val desc = parts.filter { it != rods }.joinToString(" | ")
+    return desc to (rods?.removePrefix(RODS_PREFIX) ?: "")
+}
+
+internal fun parseRodBreakdown(breakdown: String): Map<String, Pair<String, String>> =
+    rodRegex.findAll(breakdown).associate { m -> m.groupValues[1] to (m.groupValues[2] to m.groupValues[3]) }
 
 /** Steel is bought by rod diameter, each at its own rate — so the Expense form offers a row
  *  per size instead of a single qty/rate pair. */
@@ -71,6 +98,7 @@ data class ReceivedInput(
     val description: String
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
     private val materialRepository: MaterialRepository,
@@ -101,33 +129,27 @@ class ExpenseViewModel(
         return if (linked != null) ExpenseType.VENDOR to linked.linkedVendorId else ExpenseType.MATERIAL to null
     }
 
-    /** Category for a vendor payment: the vendor's own work category, mapped onto the
-     *  project's cost categories — this is what makes a civil vendor's payments actually
-     *  count toward Civil/Structural's Budget vs Actual instead of silently landing in
-     *  "Other/Misc" (a real gap in the previous version). */
-    private fun categoryForVendor(workCategory: VendorWorkCategory): CostCategory = when (workCategory) {
-        VendorWorkCategory.CIVIL, VendorWorkCategory.STRUCTURAL, VendorWorkCategory.MASON,
-        VendorWorkCategory.CARPENTER -> CostCategory.CIVIL_STRUCTURAL
-        VendorWorkCategory.ELECTRICIAN, VendorWorkCategory.PLUMBING, VendorWorkCategory.HVAC -> CostCategory.MEP
-        VendorWorkCategory.PAINTING -> CostCategory.PAINTING
-        VendorWorkCategory.FLOORING -> CostCategory.TILING
-        VendorWorkCategory.ALUMINIUM, VendorWorkCategory.FABRICATION -> CostCategory.JOINERY
-        VendorWorkCategory.OTHER -> CostCategory.OTHER_MISC
+    /** Category for an expense: explicit choice if given; a vendor payment takes the vendor's
+     *  work category (Civil vendor → Civil/Structural); otherwise inferred from the material
+     *  (BOQ trace → name keywords → Other/Misc). */
+    private suspend fun resolveCategory(projectId: Long, materialName: String, type: ExpenseType, vendorId: Long?, override: CostCategory?): CostCategory {
+        override?.let { return it }
+        if (type == ExpenseType.VENDOR && vendorId != null) {
+            val vendor = vendors.value.find { it.id == vendorId } ?: vendorRepository.getForProject(projectIdFlow.value ?: 0).find { it.id == vendorId }
+            if (vendor != null) return CategoryRules.categoryForVendor(vendor.workCategory)
+        }
+        return materialRepository.resolveCategory(projectId, materialName)
     }
 
-    private suspend fun resolveCategory(projectId: Long, materialName: String, type: ExpenseType, vendorId: Long?): CostCategory {
-        if (type == ExpenseType.VENDOR && vendorId != null) {
-            val vendor = vendors.value.find { it.id == vendorId }
-            if (vendor != null) return categoryForVendor(vendor.workCategory)
-        }
-        return materialRepository.inferCategoryForMaterial(projectId, materialName) ?: CostCategory.OTHER_MISC
-    }
+    private fun composeNotes(input: MaterialExpenseInput) =
+        listOf(input.description, input.rodBreakdown.takeIf { it.isNotBlank() }?.let { RODS_PREFIX + it } ?: "")
+            .filter { it.isNotBlank() }.joinToString(" | ")
 
     fun addMaterialExpense(input: MaterialExpenseInput) {
         val currentProjectId = projectIdFlow.value ?: return
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
-            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
+            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId, input.categoryOverride)
             // Freight & unloading is folded INTO this material's total, not split into its own
             // line: what you actually spent on cement is the goods cost plus the cost of
             // getting it to site, and that whole figure is what should come off the material's
@@ -142,7 +164,7 @@ class ExpenseViewModel(
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = goodsTotal + freight, freightAmount = freight, paymentMode = input.paymentMode,
                     paymentStatus = PaymentStatus.PAID,
-                    notes = listOf(input.description, input.rodBreakdown).filter { it.isNotBlank() }.joinToString(" | ")
+                    notes = composeNotes(input)
                 )
             )
         }
@@ -152,7 +174,7 @@ class ExpenseViewModel(
         val currentProjectId = projectIdFlow.value ?: return
         val (type, vendorId) = resolveVendorLink(input.materialName)
         viewModelScope.launch {
-            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId)
+            val category = resolveCategory(currentProjectId, input.materialName, type, vendorId, input.categoryOverride)
             val freight = input.freightAmount?.takeIf { it > 0 } ?: 0.0
             val goodsTotal = CalculationEngine.expenseTotal(input.quantity, input.rate)
             expenseRepository.updateExpense(
@@ -162,7 +184,7 @@ class ExpenseViewModel(
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = goodsTotal + freight, freightAmount = freight,
                     paymentMode = input.paymentMode,
-                    notes = listOf(input.description, input.rodBreakdown).filter { it.isNotBlank() }.joinToString(" | ")
+                    notes = composeNotes(input)
                 )
             )
         }
@@ -262,10 +284,21 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                 Spacer(Modifier.height(8.dp))
             }
 
-            if (filtered.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (activeDirection == TransactionDirection.EXPENSE) "No expenses yet. Tap + to add spending." else "No amounts received yet. Tap + to log one.")
+            if (filtered.isNotEmpty()) {
+                AppCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel(if (activeDirection == TransactionDirection.EXPENSE) "Total spent" else "Total received", modifier = Modifier.weight(1f))
+                        Text(formatCurrency(filtered.sumOf { it.totalAmount }), style = com.aarush.cpm.ui.theme.FigureStyle)
+                    }
                 }
+                Spacer(Modifier.height(4.dp))
+            }
+            if (filtered.isEmpty()) {
+                EmptyState(
+                    if (activeDirection == TransactionDirection.EXPENSE) "No expenses yet" else "No receipts yet",
+                    if (activeDirection == TransactionDirection.EXPENSE) "Tap + to log a purchase or a vendor payment. Stock, vendor balances and budgets update automatically."
+                    else "Tap + to log money received from the client."
+                )
             } else if (activeDirection == TransactionDirection.RECEIVED) {
                 val sortedReceived = if (dateAscending) filtered.sortedBy { it.date } else filtered.sortedByDescending { it.date }
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,23 +311,23 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                 val grouped = when (groupMode) {
                     GroupMode.MATERIAL -> filtered.groupBy { it.itemOrMaterialName }.toSortedMap()
                     GroupMode.DATE -> filtered
-                        .groupBy { it.date / 86_400_000L } // group by calendar day, not the display string
+                        .groupBy { localDayOf(it.date) } // the person's local calendar day (not UTC)
                         .toSortedMap(if (dateAscending) compareBy { it } else compareByDescending { it })
-                        .mapKeys { (dayBucket, _) -> formatDate(dayBucket * 86_400_000L) }
+                        .mapKeys { (day, _) -> com.aarush.cpm.ui.common.formatDate(day) }
                 }
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     grouped.forEach { (key, groupItems) ->
                         val isExpanded = expandedGroups.contains(key)
                         val groupTotal = groupItems.sumOf { it.totalAmount }
                         item(key = "header-$key") {
-                            Card(
+                            AppCard(
                                 onClick = { expandedGroups = if (isExpanded) expandedGroups - key else expandedGroups + key },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(key, fontWeight = FontWeight.Bold)
-                                        Text("${groupItems.size} entr${if (groupItems.size == 1) "y" else "ies"}  •  ${formatCurrency(groupTotal)}", style = MaterialTheme.typography.bodySmall)
+                                        Text(key, style = MaterialTheme.typography.titleSmall)
+                                        SectionLabel("${groupItems.size} entr${if (groupItems.size == 1) "y" else "ies"} · ${formatCurrency(groupTotal)}")
                                     }
                                     Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (isExpanded) "Collapse" else "Expand")
                                 }
@@ -366,7 +399,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
 private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
-    Card(
+    AppCard(
         onClick = { expanded = !expanded },
         modifier = Modifier.fillMaxWidth().padding(start = 12.dp).animateContentSize()
     ) {
@@ -387,8 +420,10 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                 Spacer(Modifier.height(8.dp))
                 Text("Material: ${expense.itemOrMaterialName}", style = MaterialTheme.typography.bodySmall)
                 Text("Category: ${expense.category.name.replace("_", " ")}", style = MaterialTheme.typography.bodySmall)
-                Text("Description: ${expense.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
-                Text("Quantity: ${expense.quantity} ${expense.unit}", style = MaterialTheme.typography.bodySmall)
+                val (descText, rodsText) = splitExpenseNotes(expense.notes)
+                Text("Description: ${descText.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
+                if (rodsText.isNotBlank()) Text("Rod sizes: $rodsText", style = MaterialTheme.typography.bodySmall)
+                Text("Quantity: ${com.aarush.cpm.ui.common.formatQuantity(expense.quantity, expense.unit)}", style = MaterialTheme.typography.bodySmall)
                 Text("Rate: ${formatCurrency(expense.rate)}", style = MaterialTheme.typography.bodySmall)
                 if (expense.freightAmount > 0) {
                     Text(
@@ -418,12 +453,13 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
 private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
-    Card(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().animateContentSize()) {
+    AppCard(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold)
-                    Text(formatCurrency(expense.totalAmount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(formatCurrency(expense.totalAmount), style = com.aarush.cpm.ui.theme.FigureStyle, color = SiteTheme.colors.good)
+                    if (expense.itemOrMaterialName.isNotBlank()) Text(expense.itemOrMaterialName, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
@@ -456,16 +492,24 @@ private fun AddEditMaterialExpenseDialog(
     onDismiss: () -> Unit,
     onSubmit: (MaterialExpenseInput) -> Unit
 ) {
-    var dateMillis by remember { mutableStateOf(existing?.date ?: System.currentTimeMillis()) }
+    var dateMillis by remember { mutableStateOf(existing?.date ?: com.aarush.cpm.domain.schedule.WorkCalendar.toEpochMillis(java.time.LocalDate.now())) }
     var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.CASH) }
     var materialName by remember { mutableStateOf(existing?.itemOrMaterialName ?: "") }
-    var description by remember { mutableStateOf(existing?.notes?.substringBefore(" | ") ?: "") }
+    val existingNotes = remember(existing) { splitExpenseNotes(existing?.notes ?: "") }
+    var description by remember { mutableStateOf(existingNotes.first) }
+    var categoryOverride by remember { mutableStateOf<CostCategory?>(null) }
+    var categoryMenu by remember { mutableStateOf(false) }
     var quantity by remember { mutableStateOf(existing?.quantity?.toString() ?: "1") }
     var unit by remember { mutableStateOf(existing?.unit ?: "") }
     var rate by remember { mutableStateOf(existing?.rate?.toString() ?: "") }
     var vendorAmount by remember { mutableStateOf(existing?.totalAmount?.toString() ?: "") }
-    val rodQty = remember { mutableStateMapOf<String, String>() }
-    val rodRate = remember { mutableStateMapOf<String, String>() }
+    // Editing a steel purchase restores its rod-wise rows from the saved breakdown (they used
+    // to come back empty, so a steel expense could not be saved without re-typing everything).
+    val savedRods = remember(existing) { parseRodBreakdown(existingNotes.second) }
+    val rodQty = remember { mutableStateMapOf<String, String>().apply { savedRods.forEach { (k, v) -> put(k, v.first) } } }
+    val rodRate = remember { mutableStateMapOf<String, String>().apply { savedRods.forEach { (k, v) -> put(k, v.second) } } }
+    // Legacy steel entries without a breakdown are edited as a plain qty × rate line.
+    var steelByRod by remember { mutableStateOf(existing == null || savedRods.isNotEmpty()) }
     var showFreightField by remember { mutableStateOf(existing != null && existing.freightAmount > 0) }
     var freightAmount by remember { mutableStateOf(existing?.freightAmount?.takeIf { it > 0 }?.toString() ?: "") }
 
@@ -475,7 +519,7 @@ private fun AddEditMaterialExpenseDialog(
 
     val selectedCard = materialRates.find { it.description == materialName }
     val isVendorLine = selectedCard?.linkedVendorId != null
-    val isSteel = isSteelMaterial(materialName)
+    val isSteel = isSteelMaterial(materialName) && steelByRod
 
     val freightD = freightAmount.toDoubleOrNull() ?: 0.0
     // Steel totals roll up every rod size; a vendor line is a plain amount; everything else
@@ -531,6 +575,28 @@ private fun AddEditMaterialExpenseDialog(
                 }
                 OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
+                if (!isVendorLine) {
+                    Box {
+                        OutlinedButton(onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Category: ${categoryOverride?.name?.replace('_', ' ') ?: "Auto" + (existing?.let { " (${it.category.name.replace('_', ' ')})" } ?: "")}")
+                        }
+                        DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
+                            DropdownMenuItem(text = { Text("Auto — from BOQ / material name") }, onClick = { categoryOverride = null; categoryMenu = false })
+                            CostCategory.values().forEach { c ->
+                                DropdownMenuItem(text = { Text(c.name.replace('_', ' ')) }, onClick = { categoryOverride = c; categoryMenu = false })
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (isSteelMaterial(materialName)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = steelByRod, onCheckedChange = { steelByRod = it })
+                        Spacer(Modifier.width(8.dp))
+                        Text("Enter by rod diameter", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
 
                 when {
                     // A vendor payment is just "how much did I hand over" — no qty/rate/unit.
@@ -630,7 +696,8 @@ private fun AddEditMaterialExpenseDialog(
                     MaterialExpenseInput(
                         date = dateMillis, paymentMode = paymentMode, materialName = materialName,
                         description = description, quantity = finalQty, unit = finalUnit, rate = finalRate,
-                        freightAmount = freightAmount.toDoubleOrNull(), rodBreakdown = breakdown
+                        freightAmount = freightAmount.toDoubleOrNull(), rodBreakdown = breakdown,
+                        categoryOverride = if (isVendorLine) null else categoryOverride ?: existing?.takeIf { it.itemOrMaterialName == materialName }?.category
                     )
                 )
             }) { Text("Save") }
@@ -639,12 +706,12 @@ private fun AddEditMaterialExpenseDialog(
     )
 
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateMillis)
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = pickerMillisFromStored(dateMillis))
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { dateMillis = it }
+                    datePickerState.selectedDateMillis?.let { dateMillis = storedMillisFromPicker(it) }
                     showDatePicker = false
                 }) { Text("OK") }
             },
@@ -662,7 +729,7 @@ private fun AddEditReceivedDialog(
     onDismiss: () -> Unit,
     onSubmit: (ReceivedInput) -> Unit
 ) {
-    var dateMillis by remember { mutableStateOf(existing?.date ?: System.currentTimeMillis()) }
+    var dateMillis by remember { mutableStateOf(existing?.date ?: com.aarush.cpm.domain.schedule.WorkCalendar.toEpochMillis(java.time.LocalDate.now())) }
     var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.BANK_TRANSFER) }
     var amount by remember { mutableStateOf(existing?.totalAmount?.toString() ?: "") }
     var description by remember { mutableStateOf(existing?.notes ?: "") }
@@ -700,12 +767,12 @@ private fun AddEditReceivedDialog(
     )
 
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateMillis)
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = pickerMillisFromStored(dateMillis))
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { dateMillis = it }
+                    datePickerState.selectedDateMillis?.let { dateMillis = storedMillisFromPicker(it) }
                     showDatePicker = false
                 }) { Text("OK") }
             },

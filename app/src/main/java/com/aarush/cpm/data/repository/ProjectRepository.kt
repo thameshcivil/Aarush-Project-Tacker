@@ -1,5 +1,6 @@
 package com.aarush.cpm.data.repository
 
+import androidx.room.withTransaction
 import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.CostAllocation
 import com.aarush.cpm.data.entity.CostCategory
@@ -55,8 +56,11 @@ class ProjectRepository(private val db: AppDatabase) {
         startDate: Long,
         expectedCompletionDate: Long,
         notes: String = "",
-        isDemoData: Boolean = false
-    ): Long {
+        isDemoData: Boolean = false,
+        /** Runs inside the same transaction right after the project row exists — used to
+         *  seed built-in notations/rates so a project is never left half-created. */
+        afterCreate: suspend (Long) -> Unit = {}
+    ): Long = db.withTransaction {
         require(areaComponents.isNotEmpty()) { "At least one area & rate component is required." }
 
         val totalArea = areaComponents.sumOf { it.areaSqft }
@@ -85,7 +89,8 @@ class ProjectRepository(private val db: AppDatabase) {
         db.projectAreaComponentDao().insertAll(
             areaComponents.map { ProjectAreaComponent(projectId = id, label = it.label, areaSqft = it.areaSqft, ratePerSqft = it.ratePerSqft) }
         )
-        return id
+        afterCreate(id)
+        id
     }
 
     fun observeAreaComponents(projectId: Long): Flow<List<ProjectAreaComponent>> =
@@ -110,17 +115,17 @@ class ProjectRepository(private val db: AppDatabase) {
         )
     }
 
-    suspend fun addAreaComponent(projectId: Long, label: String, areaSqft: Double, ratePerSqft: Double) {
+    suspend fun addAreaComponent(projectId: Long, label: String, areaSqft: Double, ratePerSqft: Double) = db.withTransaction {
         db.projectAreaComponentDao().insertAll(listOf(ProjectAreaComponent(projectId = projectId, label = label, areaSqft = areaSqft, ratePerSqft = ratePerSqft)))
         recalculateAggregatesFromComponents(projectId)
     }
 
-    suspend fun updateAreaComponent(component: ProjectAreaComponent) {
+    suspend fun updateAreaComponent(component: ProjectAreaComponent) = db.withTransaction {
         db.projectAreaComponentDao().update(component)
         recalculateAggregatesFromComponents(component.projectId)
     }
 
-    suspend fun deleteAreaComponent(component: ProjectAreaComponent) {
+    suspend fun deleteAreaComponent(component: ProjectAreaComponent) = db.withTransaction {
         db.projectAreaComponentDao().delete(component)
         recalculateAggregatesFromComponents(component.projectId)
     }
@@ -128,13 +133,64 @@ class ProjectRepository(private val db: AppDatabase) {
     suspend fun updateProject(project: Project) =
         db.projectDao().update(project.copy(updatedAt = System.currentTimeMillis()))
 
-    suspend fun deleteProject(project: Project) = db.projectDao().delete(project)
+    /**
+     * Saves the editable project details (Project Settings → Project). When the manual
+     * override is switched off, the value is recomputed from the area/rate rows again.
+     */
+    suspend fun updateProjectDetails(project: Project, manualValue: Double?) = db.withTransaction {
+        val updated = if (manualValue != null) project.copy(projectValue = manualValue, isProjectValueManuallyOverridden = true)
+                      else project.copy(isProjectValueManuallyOverridden = false)
+        db.projectDao().update(updated.copy(updatedAt = System.currentTimeMillis()))
+        recalculateAggregatesFromComponents(project.id)
+    }
+
+    /**
+     * Deletes a project and EVERYTHING that belongs to it, in one transaction. The schema
+     * links child rows by plain projectId columns (no FK cascades), so previously deleting a
+     * project left all its BOQ, expenses, vendors, schedule etc. orphaned in the database.
+     */
+    suspend fun deleteProject(project: Project) = db.withTransaction {
+        val id = project.id
+        db.scheduleDependencyDao().deleteForProject(id) // must run before activities are gone
+        db.activityProgressLogDao().deleteForProject(id)
+        db.scheduleActivityDao().deleteForProject(id)
+        db.projectProgressDao().deleteForProject(id)
+        db.labourEntryDao().deleteForProject(id)
+        db.labourRateDao().deleteForProject(id)
+        db.notificationDao().clearForProject(id)
+        db.materialUsageDao().deleteForProject(id)
+        db.materialPurchaseDao().deleteForProject(id)
+        db.expenseDao().deleteForProject(id)
+        db.clientPaymentDao().deleteForProject(id)
+        db.vendorDao().deleteForProject(id)
+        db.materialRateCardDao().deleteForProject(id)
+        db.materialCoefficientDao().deleteForProject(id)
+        db.materialDao().deleteForProject(id)
+        db.boqNotationDao().deleteForProject(id)
+        db.boqDao().deleteForProject(id)
+        db.costAllocationDao().deleteForProject(id)
+        db.projectAreaComponentDao().deleteForProject(id)
+        db.projectDao().delete(project)
+    }
+
+    /** Removes every project flagged as demo data (and all its rows). */
+    suspend fun deleteDemoProjects(): Int {
+        val demos = db.projectDao().getDemoProjects()
+        demos.forEach { deleteProject(it) }
+        return demos.size
+    }
 
     fun observeCostAllocations(projectId: Long): Flow<List<CostAllocation>> =
         db.costAllocationDao().observeForProject(projectId)
 
     suspend fun updateCostAllocation(allocation: CostAllocation) =
         db.costAllocationDao().update(allocation.copy(updatedAt = System.currentTimeMillis()))
+
+    /** Saves the whole cost-distribution table at once (validated to 100% by the caller). */
+    suspend fun saveCostAllocations(projectId: Long, allocations: List<CostAllocation>) = db.withTransaction {
+        db.costAllocationDao().deleteForProject(projectId)
+        db.costAllocationDao().insertAll(allocations.map { it.copy(id = 0, projectId = projectId, updatedAt = System.currentTimeMillis()) })
+    }
 
     suspend fun getCostAllocations(projectId: Long): List<CostAllocation> =
         db.costAllocationDao().getForProject(projectId)

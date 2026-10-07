@@ -30,4 +30,7 @@ interface ProjectDao {
         ORDER BY updatedAt DESC
     """)
     fun search(query: String): Flow<List<Project>>
+
+    @Query("SELECT * FROM projects WHERE isDemoData = 1")
+    suspend fun getDemoProjects(): List<Project>
 }

@@ -23,13 +23,16 @@ class AppFlowUiTest {
     }
 
     @Test
-    fun createAccount_thenReachDashboard() {
+    fun createAccount_thenReachProjects() {
+        // Unique per run: the app's database persists between test runs on the same device,
+        // so a fixed email failed every run after the first ("account already exists").
+        val stamp = System.currentTimeMillis()
         composeRule.onNodeWithText("Create account").performClick()
-        composeRule.onNodeWithText("Username").performTextInput("tester")
-        composeRule.onNodeWithText("Email").performTextInput("tester@example.com")
+        composeRule.onNodeWithText("Username").performTextInput("tester$stamp")
+        composeRule.onNodeWithText("Email").performTextInput("tester$stamp@example.com")
         composeRule.onNodeWithText("Password").performTextInput("password123")
         composeRule.onNodeWithText("Create account & continue").performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Aarush CPM").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Projects")[0].assertIsDisplayed()
     }
 }

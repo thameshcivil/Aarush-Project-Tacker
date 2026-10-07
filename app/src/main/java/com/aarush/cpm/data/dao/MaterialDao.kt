@@ -23,6 +23,12 @@ interface MaterialDao {
 
     @Query("SELECT * FROM materials WHERE projectId = :projectId")
     suspend fun getForProject(projectId: Long): List<Material>
+
+    @Query("UPDATE materials SET name = :newName WHERE projectId = :projectId AND name = :oldName")
+    suspend fun rename(projectId: Long, oldName: String, newName: String)
+
+    @Query("DELETE FROM materials WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }
 
 @Dao
@@ -48,6 +54,9 @@ interface MaterialCoefficientDao {
     @Query("SELECT * FROM material_coefficients WHERE projectId = :projectId AND workItemKey = :workItemKey")
     suspend fun getForWorkItem(projectId: Long, workItemKey: String): List<MaterialCoefficient>
 
+    @Query("UPDATE material_coefficients SET materialName = :newName WHERE projectId = :projectId AND materialName = :oldName")
+    suspend fun renameMaterial(projectId: Long, oldName: String, newName: String)
+
     @Query("DELETE FROM material_coefficients WHERE projectId = :projectId")
     suspend fun deleteForProject(projectId: Long)
 }
@@ -68,12 +77,25 @@ interface MaterialPurchaseDao {
 
     @Query("SELECT * FROM material_purchases WHERE projectId = :projectId AND materialName = :materialName")
     suspend fun getForMaterial(projectId: Long, materialName: String): List<MaterialPurchase>
+
+    /** Keeps stock in sync when the originating Expense is edited or deleted. */
+    @Query("DELETE FROM material_purchases WHERE expenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: Long)
+
+    @Query("UPDATE material_purchases SET materialName = :newName WHERE projectId = :projectId AND materialName = :oldName")
+    suspend fun rename(projectId: Long, oldName: String, newName: String)
+
+    @Query("DELETE FROM material_purchases WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }
 
 @Dao
 interface MaterialUsageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(usage: MaterialUsage): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(usages: List<MaterialUsage>)
 
     @Delete
     suspend fun delete(usage: MaterialUsage)
@@ -83,4 +105,13 @@ interface MaterialUsageDao {
 
     @Query("SELECT * FROM material_usages WHERE projectId = :projectId")
     suspend fun getForProject(projectId: Long): List<MaterialUsage>
+
+    @Query("DELETE FROM material_usages WHERE progressLogId = :logId")
+    suspend fun deleteForProgressLog(logId: Long)
+
+    @Query("UPDATE material_usages SET materialName = :newName WHERE projectId = :projectId AND materialName = :oldName")
+    suspend fun rename(projectId: Long, oldName: String, newName: String)
+
+    @Query("DELETE FROM material_usages WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

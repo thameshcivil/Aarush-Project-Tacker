@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 /** Standard unit choices offered on the BOQ entry form. Stored as plain text on BOQItem.unit,
  *  same as before — this is just the fixed dropdown list rather than free typing. */
 object BOQUnits {
-    val OPTIONS = listOf("Rmt", "Rft", "Sqft", "Sqm", "Cft", "Cum")
+    val OPTIONS = listOf("Rmt", "Rft", "Sqft", "Sqm", "Cft", "Cum", "Nos", "Kg")
 }
 
 @Entity(tableName = "boq_items")
@@ -40,5 +40,9 @@ data class BOQItem(
     val breadth: Double = 0.0,
     val depth: Double = 0.0,
     val notes: String = "",
+    /** Floor / location tag ("Foundation", "Ground Floor"...). Blank = whole building /
+     *  untagged. The schedule uses it to give each floor's activity its exact measured
+     *  quantity instead of an even share — see ScheduleEngine.plannedQuantityFor. */
+    val floor: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )

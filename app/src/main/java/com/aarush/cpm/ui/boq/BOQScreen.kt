@@ -34,6 +34,15 @@ import com.aarush.cpm.domain.calculation.CalculationEngine
 import com.aarush.cpm.ui.common.ConfirmDeleteDialog
 import com.aarush.cpm.ui.common.formatQuantity
 import com.aarush.cpm.ui.common.showUndoDeleteSnackbar
+import com.aarush.cpm.data.repository.ProjectRepository
+import com.aarush.cpm.domain.calculation.CategoryRules
+import com.aarush.cpm.domain.schedule.ResidentialScheduleTemplate
+import com.aarush.cpm.ui.common.AppCard
+import com.aarush.cpm.ui.common.EmptyState
+import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.theme.SiteTheme
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -58,17 +67,26 @@ data class BOQItemInput(
     val depth: Double,
     val materialType: String,
     val wastePercent: Double,
-    val remark: String
+    val remark: String,
+    val floor: String = ""
 ) {
     val computedQuantity: Double
         get() = CalculationEngine.boqDimensionalQuantity(members, perMember, length, breadth, depth)
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class BOQViewModel(
     private val repository: BOQRepository,
-    private val materialRepository: MaterialRepository
+    private val materialRepository: MaterialRepository,
+    private val projectRepository: ProjectRepository
 ) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    /** Floor/location tags offered on the form — built from the project's floor count. */
+    val floorOptions: StateFlow<List<String>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(null) else projectRepository.observeById(id) }
+        .map { p -> ResidentialScheduleTemplate.floorOptions(p?.numberOfFloors ?: 1) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ResidentialScheduleTemplate.floorOptions(1))
 
     val items: StateFlow<List<BOQItem>> = projectIdFlow
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repository.observeForProject(id) }
@@ -98,7 +116,8 @@ class BOQViewModel(
                     description = input.description, unit = input.unit, quantity = qty,
                     materialType = input.materialType, wastePercent = input.wastePercent,
                     numberOfMembers = input.members, perMember = input.perMember,
-                    length = input.length, breadth = input.breadth, depth = input.depth, notes = input.remark
+                    length = input.length, breadth = input.breadth, depth = input.depth, notes = input.remark,
+                    floor = input.floor
                 )
             )
         }
@@ -112,7 +131,7 @@ class BOQViewModel(
                     itemCode = input.itemCode, category = input.category, description = input.description,
                     unit = input.unit, quantity = qty, materialType = input.materialType, wastePercent = input.wastePercent,
                     numberOfMembers = input.members, perMember = input.perMember, length = input.length,
-                    breadth = input.breadth, depth = input.depth, notes = input.remark
+                    breadth = input.breadth, depth = input.depth, notes = input.remark, floor = input.floor
                 )
             )
         }
@@ -137,6 +156,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     val boqItems by viewModel.items.collectAsState()
     val notations by viewModel.notations.collectAsState()
     val coefficients by viewModel.coefficients.collectAsState()
+    val floorOptions by viewModel.floorOptions.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<BOQItem?>(null) }
     var pendingDelete by remember { mutableStateOf<BOQItem?>(null) }
@@ -165,9 +185,9 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
             }
 
             copiedItem?.let { copied ->
-                Card(
+                AppCard(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    colors = CardDefaults.outlinedCardColors(containerColor = SiteTheme.colors.accentTint)
                 ) {
                     Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -186,23 +206,25 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
             }
 
             if (boqItems.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No BOQ items yet. Tap + to add one.")
-                }
+                EmptyState(
+                    "No BOQ measurements yet",
+                    "Tap + to measure work by notation (excavation, PCC, RCC, brickwork…). Tag each entry with its floor so the schedule gets exact quantities per floor."
+                )
             } else {
                 val mainGrouped = boqItems.groupBy { mainKeyOf(it) }.toSortedMap()
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     mainGrouped.forEach { (mainKey, mainItems) ->
                         val mainExpanded = expandedMain.contains(mainKey)
                         item(key = "main-$mainKey") {
-                            Card(
+                            AppCard(
                                 onClick = { expandedMain = if (mainExpanded) expandedMain - mainKey else expandedMain + mainKey },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(mainKey, fontWeight = FontWeight.Bold)
-                                        Text(materialSummary(mainItems, coefficients), style = MaterialTheme.typography.bodySmall)
+                                        Text(mainKey, style = MaterialTheme.typography.titleSmall)
+                                        SectionLabel("${mainItems.size} entr${if (mainItems.size == 1) "y" else "ies"} · ${quantityTotals(mainItems)}")
+                                        Text(materialSummary(mainItems, coefficients), style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                                     }
                                     if (mainExpanded) {
                                         IconButton(onClick = { copiedItem = mainItems.first() }, modifier = Modifier.size(32.dp)) {
@@ -219,14 +241,14 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                                 val subFullKey = "$mainKey|$subKey"
                                 val subExpanded = expandedSub.contains(subFullKey)
                                 item(key = "sub-$subFullKey") {
-                                    Card(
+                                    AppCard(
                                         onClick = { expandedSub = if (subExpanded) expandedSub - subFullKey else expandedSub + subFullKey },
                                         modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
                                     ) {
                                         Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
                                                 Text(subKey, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                Text(materialSummary(subItems, coefficients), style = MaterialTheme.typography.labelSmall)
+                                                Text("${quantityTotals(subItems)} · ${materialSummary(subItems, coefficients)}", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                                             }
                                             if (subExpanded) {
                                                 IconButton(onClick = { copiedItem = subItems.first() }, modifier = Modifier.size(30.dp)) {
@@ -264,6 +286,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     if (showAddDialog) {
         AddEditBOQItemDialog(
             notations = notations,
+            floorOptions = floorOptions,
             existing = null,
             template = copiedItem,
             onDismiss = { showAddDialog = false },
@@ -273,6 +296,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     editingItem?.let { item ->
         AddEditBOQItemDialog(
             notations = notations,
+            floorOptions = floorOptions,
             existing = item,
             template = null,
             onDismiss = { editingItem = null },
@@ -291,6 +315,10 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
         )
     }
 }
+
+/** "1,240 Cft" (or several units joined) — total measured quantity of a group. */
+private fun quantityTotals(items: List<BOQItem>): String =
+    items.groupBy { it.unit }.entries.joinToString(" + ") { (unit, list) -> formatQuantity(list.sumOf { it.quantity }, unit) }
 
 /** Rolls a set of BOQ entries up into their derived material quantities (cement bags, sand
  *  cft, steel kg...) via the coefficient engine — what a group header shows instead of a
@@ -315,7 +343,10 @@ private fun materialSummary(items: List<BOQItem>, coefficients: List<MaterialCoe
  *  group headers this row sits under). Tap the row to edit; the trailing icons copy/delete. */
 @Composable
 private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit) {
-    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
+    AppCard(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
+        if (item.floor.isNotBlank()) {
+            SectionLabel(item.floor, modifier = Modifier.padding(start = 10.dp, top = 8.dp), color = SiteTheme.colors.planned)
+        }
         Row(Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
@@ -341,7 +372,7 @@ private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> U
 @Composable
 private fun CompactStat(label: String, value: Double, unit: String = "") {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
+        SectionLabel(label)
         Text(formatQuantity(value, unit), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -350,6 +381,7 @@ private fun CompactStat(label: String, value: Double, unit: String = "") {
 @Composable
 private fun AddEditBOQItemDialog(
     notations: List<BOQNotation>,
+    floorOptions: List<String>,
     existing: BOQItem?,
     template: BOQItem?,
     onDismiss: () -> Unit,
@@ -371,6 +403,9 @@ private fun AddEditBOQItemDialog(
     var waste by remember { mutableStateOf(prefill?.wastePercent?.toString() ?: "3") }
     var materialType by remember { mutableStateOf(existing?.materialType ?: "") }
     var remark by remember { mutableStateOf(existing?.notes ?: "") }
+    var floor by remember { mutableStateOf(prefill?.floor ?: "") }
+    var floorMenuExpanded by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     var categoryMenuExpanded by remember { mutableStateOf(false) }
     var notationMenuExpanded by remember { mutableStateOf(false) }
     var unitMenuExpanded by remember { mutableStateOf(false) }
@@ -398,6 +433,9 @@ private fun AddEditBOQItemDialog(
                                         code = n.code
                                         materialType = n.code
                                         if (BOQUnits.OPTIONS.contains(n.defaultUnit)) unit = n.defaultUnit
+                                        // Sensible default category for the notation (Tile → Tiling…),
+                                        // only for new entries — never overrides an edit.
+                                        if (existing == null) category = CategoryRules.categoryForNotation(n.code + " " + n.description)
                                         notationMenuExpanded = false
                                     }
                                 )
@@ -406,7 +444,7 @@ private fun AddEditBOQItemDialog(
                     }
                     Spacer(Modifier.height(6.dp))
                 }
-                OutlinedTextField(code, { code = it }, label = { Text("Item code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(code, { code = it; materialType = it }, label = { Text("Item code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Box {
                     OutlinedButton(onClick = { categoryMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
@@ -430,8 +468,21 @@ private fun AddEditBOQItemDialog(
                     }
                 }
 
+                Spacer(Modifier.height(6.dp))
+                Box {
+                    OutlinedButton(onClick = { floorMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Floor / location: ${floor.ifBlank { "Whole building" }}")
+                    }
+                    DropdownMenu(expanded = floorMenuExpanded, onDismissRequest = { floorMenuExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Whole building / untagged") }, onClick = { floor = ""; floorMenuExpanded = false })
+                        (floorOptions + listOfNotNull(floor.takeIf { it.isNotBlank() && it !in floorOptions })).forEach { f ->
+                            DropdownMenuItem(text = { Text(f) }, onClick = { floor = f; floorMenuExpanded = false })
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
-                Text("Quantity", style = MaterialTheme.typography.labelMedium)
+                SectionLabel("Quantity")
                 Spacer(Modifier.height(4.dp))
                 Row {
                     OutlinedTextField(members, { members = it }, label = { Text("No. of Member") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
@@ -450,6 +501,7 @@ private fun AddEditBOQItemDialog(
                 Text("Leave any field blank to treat it as 1 — e.g. just \"No. of Member\" for a plain count.", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(6.dp))
                 Text("Calculated quantity: ${formatQuantity(computedQty, unit)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(waste, { waste = it }, label = { Text("Waste %") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -460,14 +512,21 @@ private fun AddEditBOQItemDialog(
         confirmButton = {
             TextButton(onClick = {
                 val w = waste.toDoubleOrNull() ?: 0.0
-                if (code.isNotBlank() && computedQty > 0) {
+                val anyDimension = listOf(members, perMember, length, breadth, depth).any { (it.toDoubleOrNull() ?: 0.0) > 0 }
+                error = when {
+                    code.isBlank() -> "Pick or type an item code."
+                    !anyDimension -> "Enter at least one measurement (members, length, breadth or depth)."
+                    w < 0 || w > 100 -> "Waste % must be between 0 and 100."
+                    else -> null
+                }
+                if (error == null && computedQty > 0) {
                     onSubmit(
                         BOQItemInput(
                             itemCode = code, category = category, description = description, unit = unit,
                             members = members.toDoubleOrNull() ?: 0.0, perMember = perMember.toDoubleOrNull() ?: 0.0,
                             length = length.toDoubleOrNull() ?: 0.0, breadth = breadth.toDoubleOrNull() ?: 0.0,
                             depth = depth.toDoubleOrNull() ?: 0.0,
-                            materialType = materialType.ifBlank { code }, wastePercent = w, remark = remark
+                            materialType = materialType.ifBlank { code }, wastePercent = w, remark = remark, floor = floor
                         )
                     )
                 }

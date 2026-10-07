@@ -9,16 +9,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.repository.MaterialRepository
 import com.aarush.cpm.data.repository.MaterialStatusRow
-import com.aarush.cpm.ui.common.formatCurrency
-import com.aarush.cpm.ui.common.formatDate
-import com.aarush.cpm.ui.common.formatQuantity
+import com.aarush.cpm.ui.common.*
+import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +30,7 @@ class MaterialStatusViewModel(private val materialRepository: MaterialRepository
 
     fun load(projectId: Long) {
         viewModelScope.launch {
-            _isLoading.value = true
+            _isLoading.value = _rows.value.isEmpty()
             _rows.value = materialRepository.materialStatus(projectId)
             _isLoading.value = false
         }
@@ -44,40 +42,52 @@ fun MaterialStatusTabContent(projectId: Long, viewModel: MaterialStatusViewModel
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val rows by viewModel.rows.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-
-    if (isLoading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        return
-    }
-    if (rows.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No materials tracked yet — add BOQ items linked to a notation with coefficients to see this.")
-        }
-        return
-    }
-
     var detailRow by remember { mutableStateOf<MaterialStatusRow?>(null) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(rows, key = { it.materialName }) { row ->
-            MaterialStatusCard(row, onClick = { detailRow = row })
+    when {
+        isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SiteTheme.colors.accent) }
+        rows.isEmpty() -> EmptyState(
+            "No materials tracked yet",
+            "Add BOQ items linked to a notation with coefficients, or log purchases in Expenses, to see requirements, stock and spend here."
+        )
+        else -> {
+            val tracked = rows.filter { it.isStockTracked && !it.isVendorLinked }
+            val vendors = rows.filter { it.isVendorLinked }
+            val others = rows.filter { !it.isStockTracked && !it.isVendorLinked }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (tracked.isNotEmpty()) {
+                    item { SectionLabel("Stock materials · from BOQ") }
+                    items(tracked, key = { "t-" + it.materialName }) { row -> MaterialStatusCard(row, onClick = { detailRow = row }) }
+                }
+                if (vendors.isNotEmpty()) {
+                    item { SectionLabel("Labour contracts", modifier = Modifier.padding(top = 8.dp)) }
+                    items(vendors, key = { "v-" + it.materialName }) { row -> MaterialStatusCard(row, onClick = { detailRow = row }) }
+                }
+                if (others.isNotEmpty()) {
+                    item { SectionLabel("Other purchases", modifier = Modifier.padding(top = 8.dp)) }
+                    items(others, key = { "o-" + it.materialName }) { row -> MaterialStatusCard(row, onClick = { detailRow = row }) }
+                }
+                item { Spacer(Modifier.height(16.dp)) }
+            }
         }
-        item { Spacer(Modifier.height(16.dp)) }
     }
 
     detailRow?.let { row -> PurchaseHistoryDialog(row = row, onDismiss = { detailRow = null }) }
 }
 
-/** Tapping a material opens its purchase history — every dated buy with quantity and spend,
- *  so the single "Expensed amount" figure on the card can be traced back to what made it up. */
+/** Tapping a material opens its purchase history — every dated buy with quantity and spend. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PurchaseHistoryDialog(row: MaterialStatusRow, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(row.materialName, style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(row.materialName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
                 }
@@ -86,32 +96,28 @@ private fun PurchaseHistoryDialog(row: MaterialStatusRow, onDismiss: () -> Unit)
         text = {
             Column(Modifier.heightIn(max = 420.dp)) {
                 if (row.purchaseHistory.isEmpty()) {
-                    Text("No purchases recorded yet for this material.", style = MaterialTheme.typography.bodySmall)
+                    Text(if (row.isVendorLinked) "No payments recorded yet." else "No purchases recorded yet for this material.",
+                        style = MaterialTheme.typography.bodySmall)
                 } else {
-                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Date", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Text("Qty", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Text("Spend", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                        SectionLabel("Date", modifier = Modifier.weight(1f))
+                        SectionLabel("Qty", modifier = Modifier.weight(1f))
+                        SectionLabel(if (row.isVendorLinked) "Paid" else "Spend")
                     }
-                    HorizontalDivider()
+                    HorizontalDivider(color = SiteTheme.colors.hairline)
                     LazyColumn(Modifier.weight(1f, fill = false)) {
                         items(row.purchaseHistory.size) { index ->
                             val entry = row.purchaseHistory[index]
-                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(formatDate(entry.date), style = MaterialTheme.typography.bodySmall)
-                                Text(
-                                    if (row.isVendorLinked) "-" else formatQuantity(entry.quantity, row.unit),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
+                            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                                Text(formatDate(entry.date), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                Text(if (row.isVendorLinked) "—" else formatQuantity(entry.quantity, row.unit),
+                                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                                 Text(formatCurrency(entry.amount), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
-                    HorizontalDivider()
-                    Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text(formatCurrency(row.expensedAmount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    }
+                    HorizontalDivider(color = SiteTheme.colors.hairline)
+                    MetricRow("Total", formatCurrency(row.expensedAmount), emphasize = true)
                 }
             }
         },
@@ -119,41 +125,48 @@ private fun PurchaseHistoryDialog(row: MaterialStatusRow, onDismiss: () -> Unit)
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MaterialStatusCard(row: MaterialStatusRow, onClick: () -> Unit) {
-    Card(onClick = onClick) {
-        Column(Modifier.padding(12.dp)) {
-            Text(row.materialName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            if (row.isVendorLinked) {
-                // A labour-cost line has no meaningful quantity/stock — just budget vs spend.
-                StatRow("Required budget", formatCurrency(row.requiredBudget))
-                StatRow("Expensed amount", formatCurrency(row.expensedAmount))
-                StatRow(
-                    "Balance holding amount", formatCurrency(row.balanceHoldingAmount),
-                    color = if (row.balanceHoldingAmount < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
-            } else {
-                StatRow("Required qty", formatQuantity(row.requiredQuantity, row.unit))
-                StatRow("Required budget", formatCurrency(row.requiredBudget))
-                StatRow("Purchased qty", formatQuantity(row.purchasedQuantity, row.unit))
-                StatRow("Remaining qty", formatQuantity(row.balanceToPurchase, row.unit))
-                StatRow("Stock", formatQuantity(row.currentStock, row.unit))
-                StatRow("Expensed amount", formatCurrency(row.expensedAmount))
-                StatRow(
-                    "Balance holding amount", formatCurrency(row.balanceHoldingAmount),
-                    color = if (row.balanceHoldingAmount < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
+    val balanceColor = if (row.balanceHoldingAmount < 0) SiteTheme.colors.bad else SiteTheme.colors.good
+    AppCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(row.materialName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                if (row.isStockTracked && row.currentStock < 0) StatusPill("Stock < 0", SiteTheme.colors.bad, SiteTheme.colors.badTint)
+            }
+            Spacer(Modifier.height(8.dp))
+            when {
+                row.isVendorLinked -> {
+                    ProgressRail(progress = if (row.requiredBudget > 0) (row.expensedAmount / row.requiredBudget).toFloat() else 0f,
+                        color = if (row.balanceHoldingAmount < 0) SiteTheme.colors.bad else SiteTheme.colors.accent)
+                    Spacer(Modifier.height(6.dp))
+                    MetricRow("Contract value", formatCurrency(row.requiredBudget))
+                    MetricRow("Paid", formatCurrency(row.expensedAmount))
+                    MetricRow(if (row.balanceHoldingAmount < 0) "Overpaid" else "Balance to pay",
+                        formatCurrency(kotlin.math.abs(row.balanceHoldingAmount)), valueColor = balanceColor)
+                }
+                row.isStockTracked -> {
+                    // Purchased vs required, with the used share shown by the stock figure.
+                    ProgressRail(progress = if (row.requiredQuantity > 0) (row.purchasedQuantity / row.requiredQuantity).toFloat() else 0f)
+                    Spacer(Modifier.height(6.dp))
+                    MetricRow("Required (BOQ + waste)", formatQuantity(row.requiredQuantity, row.unit))
+                    MetricRow("Purchased", formatQuantity(row.purchasedQuantity, row.unit))
+                    MetricRow("Used on site (from progress)", formatQuantity(row.usedQuantity, row.unit))
+                    MetricRow("In stock", formatQuantity(row.currentStock, row.unit),
+                        valueColor = if (row.currentStock < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified)
+                    MetricRow("Still to buy", formatQuantity(row.balanceToPurchase, row.unit), divider = true)
+                    MetricRow("Required budget", formatCurrency(row.requiredBudget))
+                    MetricRow("Spent", formatCurrency(row.expensedAmount))
+                    MetricRow("Est. cost to finish buying", formatCurrency(row.estimatedRemainingCost))
+                    MetricRow(if (row.balanceHoldingAmount < 0) "Overspent" else "Budget left",
+                        formatCurrency(kotlin.math.abs(row.balanceHoldingAmount)), valueColor = balanceColor, emphasize = true)
+                }
+                else -> {
+                    MetricRow("Purchased", formatQuantity(row.purchasedQuantity, row.unit))
+                    MetricRow("Spent", formatCurrency(row.expensedAmount), emphasize = true)
+                    Text("Not measured in the BOQ — budgeted under its cost category.", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun StatRow(label: String, value: String, color: Color = Color.Unspecified) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = color)
     }
 }

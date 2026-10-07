@@ -98,6 +98,9 @@ class CreateProjectViewModel(
     fun save(onSaved: (Long) -> Unit) {
         val s = _uiState.value
         if (s.name.isBlank()) { _uiState.value = s.copy(error = "Project name is required."); return }
+        if (s.useManualOverride && (s.manualOverrideValue.toDoubleOrNull() ?: 0.0) <= 0) {
+            _uiState.value = s.copy(error = "Enter the manual project value, or untick the override."); return
+        }
 
         val validRows = s.areaRows.filter { row ->
             (row.area.toDoubleOrNull() ?: 0.0) > 0 && (row.rate.toDoubleOrNull() ?: 0.0) > 0
@@ -118,15 +121,17 @@ class CreateProjectViewModel(
                     ratePerSqft = row.rate.toDouble()
                 )
             }
+            // Project + its default allocations + built-in notations/rates are created in ONE
+            // transaction, so a crash midway can never leave a project without its defaults.
             val id = repository.createProject(
-                name = s.name, clientName = s.clientName, clientContact = s.clientContact,
-                location = s.location, projectType = s.projectType.ifBlank { "G+1" },
-                numberOfFloors = s.numberOfFloors.toIntOrNull() ?: 1,
+                name = s.name.trim(), clientName = s.clientName.trim(), clientContact = s.clientContact.trim(),
+                location = s.location.trim(), projectType = s.projectType.ifBlank { "G+1" },
+                numberOfFloors = (s.numberOfFloors.toIntOrNull() ?: 1).coerceIn(1, 10),
                 areaComponents = components,
                 manualProjectValue = if (s.useManualOverride) s.manualOverrideValue.toDoubleOrNull() else null,
-                startDate = now, expectedCompletionDate = expected, notes = s.notes
+                startDate = now, expectedCompletionDate = expected, notes = s.notes,
+                afterCreate = { newId -> builtInDefaultsSeeder.seedBuiltInDefaults(newId) }
             )
-            builtInDefaultsSeeder.seedBuiltInDefaults(id)
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSaved(id)
         }
@@ -139,7 +144,10 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
     val s by viewModel.uiState.collectAsState()
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("New Project") }, navigationIcon = { TextButton(onClick = onBack) { Text("Cancel") } })
+        TopAppBar(
+            title = { Column { com.aarush.cpm.ui.common.SectionLabel("Step 1 of 1"); Text("New project") } },
+            navigationIcon = { TextButton(onClick = onBack) { Text("Cancel") } }
+        )
     }) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
@@ -154,10 +162,16 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(s.projectType, { v -> viewModel.update { it.copy(projectType = v) } }, label = { Text("Project type (e.g. G+1, G+Terrace)") }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
-            OutlinedTextField(s.numberOfFloors, { v -> viewModel.update { it.copy(numberOfFloors = v) } }, label = { Text("Number of floors") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                s.numberOfFloors, { v -> viewModel.update { it.copy(numberOfFloors = v.filter { c -> c.isDigit() }.take(2)) } },
+                label = { Text("Number of floors (incl. ground)") },
+                supportingText = { Text("Used to build the floor-by-floor construction schedule. G+1 = 2.") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(Modifier.height(20.dp))
-            Text("Area & rate breakdown", style = MaterialTheme.typography.titleMedium)
+            com.aarush.cpm.ui.common.SectionLabel("Area & rate breakdown")
+            Spacer(Modifier.height(4.dp))
             Text(
                 "Add a row for each part of the build with its own rate — e.g. Residence, Staircase, Portico.",
                 style = MaterialTheme.typography.bodySmall
@@ -165,7 +179,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
             Spacer(Modifier.height(8.dp))
 
             s.areaRows.forEach { row ->
-                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                com.aarush.cpm.ui.common.AppCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
@@ -216,10 +230,11 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
             }
 
             Spacer(Modifier.height(12.dp))
-            Card {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Calculated project value", style = MaterialTheme.typography.labelMedium)
-                    Text(formatCurrency(s.computedValue), style = MaterialTheme.typography.titleLarge)
+            com.aarush.cpm.ui.common.AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    com.aarush.cpm.ui.common.SectionLabel("Project value · Budget 1")
+                    Spacer(Modifier.height(4.dp))
+                    Text(formatCurrency(s.computedValue), style = com.aarush.cpm.ui.theme.FigureStyle)
                     Text("Total area: ${"%.0f".format(s.totalArea)} sqft", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -246,7 +261,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
             }
 
             Spacer(Modifier.height(16.dp))
-            Button(onClick = { viewModel.save(onSaved) }, enabled = !s.isSaving, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { viewModel.save(onSaved) }, enabled = !s.isSaving, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                 Text(if (s.isSaving) "Saving…" else "Create Project")
             }
             Spacer(Modifier.height(24.dp))

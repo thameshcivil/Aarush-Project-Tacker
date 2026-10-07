@@ -18,12 +18,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.backup.DatabaseBackupHelper
 import com.aarush.cpm.data.database.AppDatabase
+import com.aarush.cpm.data.repository.AuthPreferencesRepository
+import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.data.repository.SampleDataSeeder
+import com.aarush.cpm.ui.common.AppCard
+import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.theme.SiteTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val sampleDataSeeder: SampleDataSeeder,
-    private val database: AppDatabase
+    private val database: AppDatabase,
+    private val projectRepository: ProjectRepository,
+    private val authPreferences: AuthPreferencesRepository
 ) : ViewModel() {
     var isSeeding by mutableStateOf(false)
         private set
@@ -37,8 +46,29 @@ class SettingsViewModel(
     fun loadDemoProject(onDone: () -> Unit) {
         viewModelScope.launch {
             isSeeding = true
-            sampleDataSeeder.seedDemoProject()
+            statusMessage = null
+            runCatching { sampleDataSeeder.seedDemoProject() }
+                .onSuccess { statusMessage = "Demo project added — open it from Projects." }
+                .onFailure { statusMessage = "Could not create the demo: ${it.message}" }
             isSeeding = false
+            onDone()
+        }
+    }
+
+    /** Deletes every project flagged as demo data, with all of its rows. */
+    fun removeDemoData() {
+        viewModelScope.launch {
+            isSeeding = true
+            val n = projectRepository.deleteDemoProjects()
+            isSeeding = false
+            statusMessage = if (n == 0) "No demo projects to remove." else "Removed $n demo project${if (n == 1) "" else "s"}."
+        }
+    }
+
+    /** Signs out; [forget] also clears the remembered account (disables biometric sign-in). */
+    fun signOut(forget: Boolean, onDone: () -> Unit) {
+        viewModelScope.launch {
+            if (forget) authPreferences.clearRememberedEmail()
             onDone()
         }
     }
@@ -75,7 +105,7 @@ class SettingsViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel) {
+fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
     val context = LocalContext.current
     var showRestoreConfirm by remember { mutableStateOf<Uri?>(null) }
 
@@ -86,61 +116,100 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
         uri?.let { showRestoreConfirm = it }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
-            Text("Backup & Restore", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Uninstalling the app deletes its data — back up regularly, and always " +
-                    "before uninstalling or reinstalling, so nothing gets lost. This saves " +
-                    "a file to a location you choose (Downloads, Google Drive, a USB drive), " +
-                    "which is what makes it survive an uninstall.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = { backupLauncher.launch(DatabaseBackupHelper.suggestedFileName()) },
-                enabled = !viewModel.isBackingUp && !viewModel.isRestoring,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.CloudUpload, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (viewModel.isBackingUp) "Backing up…" else "Back up now")
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { restoreLauncher.launch(arrayOf("*/*")) },
-                enabled = !viewModel.isBackingUp && !viewModel.isRestoring,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.CloudDownload, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (viewModel.isRestoring) "Restoring…" else "Restore from backup")
-            }
+    Scaffold(topBar = {
+        LargeTopAppBar(title = { Column { SectionLabel("Aarush CPM"); Text("Settings", style = MaterialTheme.typography.headlineMedium) } })
+    }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             viewModel.statusMessage?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall)
+                AppCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors(containerColor = SiteTheme.colors.accentTint)) {
+                    Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            SectionLabel("Backup & restore")
+            Spacer(Modifier.height(6.dp))
+            AppCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Uninstalling the app deletes its data. Back up regularly — and always before uninstalling — to Downloads, " +
+                            "Google Drive or a USB drive. Restore checks the file first and keeps your current data if anything is wrong.",
+                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { backupLauncher.launch(DatabaseBackupHelper.suggestedFileName()) },
+                        enabled = !viewModel.isBackingUp && !viewModel.isRestoring,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Icon(Icons.Filled.CloudUpload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (viewModel.isBackingUp) "Backing up…" else "Back up now")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { restoreLauncher.launch(arrayOf("*/*")) },
+                        enabled = !viewModel.isBackingUp && !viewModel.isRestoring,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Icon(Icons.Filled.CloudDownload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (viewModel.isRestoring) "Restoring…" else "Restore from backup")
+                    }
+                }
             }
 
-            Spacer(Modifier.height(24.dp))
-            Text("Defaults", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Thumb-rule percentages, material/labour splits, coefficients and waste % are all " +
-                    "editable per-project from the project's cost distribution and BOQ screens.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(Modifier.height(24.dp))
-            Text("Demo data", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = { viewModel.loadDemoProject {} }, enabled = !viewModel.isSeeding) {
-                Text(if (viewModel.isSeeding) "Loading…" else "Load sample demo project")
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("Project defaults")
+            Spacer(Modifier.height(6.dp))
+            AppCard(Modifier.fillMaxWidth()) {
+                Text(
+                    "Each project's cost distribution, material/labour split, details and status are edited in the project's Settings → Project tab. " +
+                        "Notations, coefficients, waste and rates are in Settings → Coefficients / Rates. The construction schedule lives in the project's Schedule tab.",
+                    style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted, modifier = Modifier.padding(16.dp)
+                )
             }
-            Spacer(Modifier.height(24.dp))
-            Text("About", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text("Aarush Construction Project Management System — v1.0.0", style = MaterialTheme.typography.bodySmall)
-            Text("Offline-first. All data stored locally on this device.", style = MaterialTheme.typography.bodySmall)
+
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("Demo data")
+            Spacer(Modifier.height(6.dp))
+            AppCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("A G+1 residence with BOQ, a civil vendor, purchases, receipts, a generated schedule and some site progress.",
+                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.loadDemoProject {} }, enabled = !viewModel.isSeeding, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f)) {
+                            Text(if (viewModel.isSeeding) "Working…" else "Load demo")
+                        }
+                        OutlinedButton(onClick = { viewModel.removeDemoData() }, enabled = !viewModel.isSeeding, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f)) {
+                            Text("Remove demo")
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("Account")
+            Spacer(Modifier.height(6.dp))
+            AppCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    OutlinedButton(onClick = { viewModel.signOut(forget = false, onDone = onSignOut) }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                        Text("Sign out")
+                    }
+                    TextButton(onClick = { viewModel.signOut(forget = true, onDone = onSignOut) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Sign out and forget this device's account")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("About")
+            Spacer(Modifier.height(6.dp))
+            Text("Aarush Construction Project Management System — v1.1.0", style = MaterialTheme.typography.bodySmall)
+            Text("Offline-first. All data stored locally on this device.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            Spacer(Modifier.height(32.dp))
         }
     }
 

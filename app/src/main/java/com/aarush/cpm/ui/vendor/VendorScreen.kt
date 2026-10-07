@@ -38,6 +38,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import com.aarush.cpm.ui.common.AppCard
+import com.aarush.cpm.ui.common.EmptyState
+import com.aarush.cpm.ui.common.MetricRow
+import com.aarush.cpm.ui.common.ProgressRail
+import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.common.StatusPill
+import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -46,6 +54,7 @@ data class VendorInput(
     val rate: Double, val quantity: Double, val paymentTerms: String, val notes: String
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VendorViewModel(
     private val vendorRepository: VendorRepository,
     private val projectRepository: ProjectRepository,
@@ -63,6 +72,13 @@ class VendorViewModel(
     val expenses: StateFlow<List<Expense>> = projectIdFlow
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else expenseRepository.observeForProject(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Project value — needed so the "percentage of project value" contract preview in the
+     *  dialog matches exactly what gets saved. */
+    val projectValue: StateFlow<Double> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(null) else projectRepository.observeById(id) }
+        .map { it?.projectValue ?: 0.0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     fun init(projectId: Long) {
         projectIdFlow.value = projectId
@@ -98,22 +114,10 @@ class VendorViewModel(
 
     fun deleteVendor(vendor: Vendor) { viewModelScope.launch { vendorRepository.deleteVendor(vendor) } }
 
-    /** Re-inserts a deleted vendor for Undo, re-running the normal add path so its linked
-     *  "Labour Cost for <Vendor>" material row is recreated too. Note the restored vendor
-     *  gets a new id, so any expenses that were tagged to the old id stay orphaned — an
-     *  accepted limitation of undo here rather than a silent, partial re-link. */
+    /** Undo for delete: restores the vendor with its original id, so its past payments and
+     *  its "Labour Cost for <Vendor>" line reconnect exactly as before. */
     fun restoreVendor(vendor: Vendor) {
-        val currentProjectId = projectIdFlow.value ?: return
-        viewModelScope.launch {
-            val project = projectRepository.getById(currentProjectId)
-            vendorRepository.addVendor(
-                projectId = currentProjectId, name = vendor.name, contact = vendor.contact,
-                workCategory = vendor.workCategory, rateType = vendor.rateType, rate = vendor.rate,
-                quantity = vendor.quantity, projectValue = project?.projectValue ?: 0.0,
-                startDate = vendor.startDate, endDate = vendor.endDate,
-                paymentTerms = vendor.paymentTerms, notes = vendor.notes
-            )
-        }
+        viewModelScope.launch { vendorRepository.restoreVendor(vendor) }
     }
 }
 
@@ -123,6 +127,7 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val vendors by viewModel.vendors.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
+    val projectValue by viewModel.projectValue.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingVendor by remember { mutableStateOf<Vendor?>(null) }
     var pendingDelete by remember { mutableStateOf<Vendor?>(null) }
@@ -130,11 +135,19 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
 
     Box(Modifier.fillMaxSize()) {
         if (vendors.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No vendors yet. Tap + to add one.")
-            }
+            EmptyState("No vendors yet", "Add your civil contractor, electrician, plumber, painter… Each vendor gets a \"Labour Cost for <name>\" line in the Expense form — that's how payments are logged and tracked against the contract.")
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            SectionLabel("All contracts")
+                            MetricRow("Contract value", formatCurrency(vendors.sumOf { it.contractValue }))
+                            MetricRow("Paid", formatCurrency(vendors.sumOf { it.amountPaid }))
+                            MetricRow("Balance payable", formatCurrency(vendors.sumOf { (it.contractValue - it.amountPaid).coerceAtLeast(0.0) }), emphasize = true)
+                        }
+                    }
+                }
                 items(vendors, key = { it.id }) { v ->
                     val payments = expenses.filter { it.vendorId == v.id }.sortedByDescending { it.date }
                     VendorCard(vendor = v, payments = payments, onEdit = { editingVendor = v }, onDelete = { pendingDelete = v })
@@ -150,13 +163,13 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
     }
 
     if (showAddDialog) {
-        AddEditVendorDialog(existing = null, onDismiss = { showAddDialog = false }, onSubmit = { input ->
+        AddEditVendorDialog(existing = null, projectValue = projectValue, onDismiss = { showAddDialog = false }, onSubmit = { input ->
             viewModel.addVendor(input)
             showAddDialog = false
         })
     }
     editingVendor?.let { vendor ->
-        AddEditVendorDialog(existing = vendor, onDismiss = { editingVendor = null }, onSubmit = { input ->
+        AddEditVendorDialog(existing = vendor, projectValue = projectValue, onDismiss = { editingVendor = null }, onSubmit = { input ->
             viewModel.updateVendor(vendor, input)
             editingVendor = null
         })
@@ -178,22 +191,34 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
 @Composable
 private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val balance = (vendor.contractValue - vendor.amountPaid).coerceAtLeast(0.0)
+    val balance = vendor.contractValue - vendor.amountPaid
 
-    Card(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(vendor.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+    AppCard(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth().animateContentSize()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    SectionLabel("${vendor.workCategory.name} · ${vendor.rateType.name.replace("_", " ")}")
+                    Text(vendor.name, style = MaterialTheme.typography.titleSmall)
+                    if (vendor.contact.isNotBlank()) Text(vendor.contact, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                }
+                if (balance < 0) StatusPill("Overpaid", SiteTheme.colors.bad, SiteTheme.colors.badTint)
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
-            Text("${vendor.workCategory.name} • ${vendor.rateType.name.replace("_", " ")}")
-            Text("Contract: ${formatCurrency(vendor.contractValue)}  •  Paid: ${formatCurrency(vendor.amountPaid)}  •  Balance: ${formatCurrency(balance)}", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            ProgressRail(progress = if (vendor.contractValue > 0) (vendor.amountPaid / vendor.contractValue).toFloat() else 0f,
+                color = if (balance < 0) SiteTheme.colors.bad else SiteTheme.colors.accent)
+            Spacer(Modifier.height(4.dp))
+            MetricRow("Contract", formatCurrency(vendor.contractValue))
+            MetricRow("Paid", formatCurrency(vendor.amountPaid))
+            MetricRow(if (balance < 0) "Overpaid by" else "Balance", formatCurrency(kotlin.math.abs(balance)),
+                valueColor = if (balance < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified, emphasize = true)
+            if (vendor.paymentTerms.isNotBlank()) Text("Terms: ${vendor.paymentTerms}", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
 
             if (expanded) {
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
-                Text("Payment history", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                SectionLabel("Payment history")
                 Spacer(Modifier.height(4.dp))
                 if (payments.isEmpty()) {
                     Text(
@@ -227,6 +252,7 @@ private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Un
 @Composable
 private fun AddEditVendorDialog(
     existing: Vendor?,
+    projectValue: Double,
     onDismiss: () -> Unit,
     onSubmit: (VendorInput) -> Unit
 ) {
@@ -242,11 +268,14 @@ private fun AddEditVendorDialog(
     var wcMenu by remember { mutableStateOf(false) }
     var rtMenu by remember { mutableStateOf(false) }
 
-    val computedContractValue = when (rateType) {
-        VendorRateType.PER_SQFT -> (rate.toDoubleOrNull() ?: 0.0) * (quantity.toDoubleOrNull() ?: 0.0)
-        VendorRateType.LUMP_SUM -> lumpSum.toDoubleOrNull() ?: 0.0
-        else -> (rate.toDoubleOrNull() ?: 0.0) * (quantity.toDoubleOrNull() ?: 1.0)
+    // Exactly the inputs that will be saved, through the same CalculationEngine formula the
+    // repository uses — the preview previously disagreed for PERCENTAGE / CUSTOM / blank qty.
+    val finalRateValue = if (rateType == VendorRateType.LUMP_SUM) (lumpSum.toDoubleOrNull() ?: 0.0) else (rate.toDoubleOrNull() ?: 0.0)
+    val finalQuantityValue = when (rateType) {
+        VendorRateType.PER_SQFT, VendorRateType.QUANTITY_X_RATE -> quantity.toDoubleOrNull() ?: 0.0
+        else -> 0.0
     }
+    val computedContractValue = CalculationEngine.vendorContractValue(rateType, finalRateValue, finalQuantityValue, projectValue)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -288,10 +317,17 @@ private fun AddEditVendorDialog(
                     VendorRateType.LUMP_SUM -> {
                         OutlinedTextField(lumpSum, { lumpSum = it }, label = { Text("Lump sum amount (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                     }
-                    else -> {
-                        OutlinedTextField(rate, { rate = it }, label = { Text("Rate") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                    VendorRateType.QUANTITY_X_RATE -> {
+                        OutlinedTextField(rate, { rate = it }, label = { Text("Rate per unit") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                         Spacer(Modifier.height(6.dp))
                         OutlinedTextField(quantity, { quantity = it }, label = { Text("Quantity") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                    }
+                    VendorRateType.PERCENTAGE -> {
+                        OutlinedTextField(rate, { rate = it }, label = { Text("Percentage of project value (%)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                        Text("Project value: ${formatCurrency(projectValue)}", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                    }
+                    VendorRateType.CUSTOM -> {
+                        OutlinedTextField(rate, { rate = it }, label = { Text("Contract amount (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                     }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -306,9 +342,7 @@ private fun AddEditVendorDialog(
         confirmButton = {
             TextButton(onClick = {
                 if (name.isNotBlank()) {
-                    val finalRate = if (rateType == VendorRateType.LUMP_SUM) (lumpSum.toDoubleOrNull() ?: 0.0) else (rate.toDoubleOrNull() ?: 0.0)
-                    val finalQuantity = if (rateType == VendorRateType.LUMP_SUM) 0.0 else (quantity.toDoubleOrNull() ?: 0.0)
-                    onSubmit(VendorInput(name, contact, workCategory, rateType, finalRate, finalQuantity, terms, notes))
+                    onSubmit(VendorInput(name.trim(), contact, workCategory, rateType, finalRateValue, finalQuantityValue, terms, notes))
                 }
             }) { Text("Save") }
         },

@@ -27,4 +27,14 @@ interface BOQDao {
 
     @Query("SELECT * FROM boq_items WHERE projectId = :projectId")
     suspend fun getForProject(projectId: Long): List<BOQItem>
+
+    /** Keeps BOQ rows linked when a notation code is renamed in project Settings. */
+    @Query("UPDATE boq_items SET itemCode = :newCode WHERE projectId = :projectId AND itemCode = :oldCode")
+    suspend fun renameItemCode(projectId: Long, oldCode: String, newCode: String)
+
+    @Query("UPDATE boq_items SET materialType = :newCode WHERE projectId = :projectId AND materialType = :oldCode")
+    suspend fun renameMaterialType(projectId: Long, oldCode: String, newCode: String)
+
+    @Query("DELETE FROM boq_items WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

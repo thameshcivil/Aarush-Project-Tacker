@@ -24,6 +24,19 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE projectId = :projectId AND vendorId = :vendorId")
     suspend fun getForVendor(projectId: Long, vendorId: Long): List<Expense>
 
-    @Query("SELECT COALESCE(SUM(totalAmount), 0) FROM expenses WHERE projectId = :projectId")
+    @Query("SELECT COALESCE(SUM(totalAmount), 0) FROM expenses WHERE projectId = :projectId AND direction = 'EXPENSE'")
     fun observeTotalSpent(projectId: Long): Flow<Double>
+
+    /** Source of truth for a vendor's paid amount — Vendor.amountPaid is a cache of this. */
+    @Query("SELECT COALESCE(SUM(totalAmount), 0) FROM expenses WHERE vendorId = :vendorId AND direction = 'EXPENSE'")
+    suspend fun sumPaidToVendor(vendorId: Long): Double
+
+    @Query("UPDATE expenses SET itemOrMaterialName = :newName WHERE projectId = :projectId AND itemOrMaterialName = :oldName")
+    suspend fun renameMaterial(projectId: Long, oldName: String, newName: String)
+
+    @Query("UPDATE expenses SET itemOrMaterialName = :newName WHERE vendorId = :vendorId AND type = 'VENDOR'")
+    suspend fun renameVendorLine(vendorId: Long, newName: String)
+
+    @Query("DELETE FROM expenses WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

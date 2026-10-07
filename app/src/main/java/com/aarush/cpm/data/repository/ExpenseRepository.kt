@@ -1,11 +1,11 @@
 package com.aarush.cpm.data.repository
 
+import androidx.room.withTransaction
 import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.Expense
 import com.aarush.cpm.data.entity.ExpenseType
 import com.aarush.cpm.data.entity.MaterialPurchase
 import com.aarush.cpm.data.entity.TransactionDirection
-import com.aarush.cpm.data.entity.Vendor
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -13,11 +13,14 @@ import kotlinx.coroutines.flow.Flow
  * Adding one Expense automatically:
  *  - records the expense itself (project + category spend, cash outflow, profit all read from this)
  *  - if direction == EXPENSE and type == MATERIAL: creates a MaterialPurchase row (feeds stock/balance-to-purchase)
- *  - if direction == EXPENSE and a vendor is tagged: bumps that vendor's cached amountPaid (feeds vendor payable)
- *  - if direction == RECEIVED: it's money coming in (e.g. a refund/adjustment), not a purchase —
- *    no material purchase or vendor-payable side effect is created; ProjectSummaryRepository
- *    folds RECEIVED rows into total received instead of total spent.
- * Nothing is asked twice on separate screens.
+ *  - if a vendor is tagged: re-derives that vendor's cached amountPaid (feeds vendor payable)
+ *  - if direction == RECEIVED: it's money coming in — no purchase/vendor side effects;
+ *    ProjectSummaryRepository folds RECEIVED rows into total received instead.
+ *
+ * Every write runs in one database transaction, and edit/delete keep the MaterialPurchase
+ * row in step with its Expense (previously an edited/deleted expense left its purchase
+ * behind, and delete + Undo doubled the stock). Vendor amountPaid is recomputed from the
+ * expenses table rather than incremented, so it can never drift.
  */
 class ExpenseRepository(private val db: AppDatabase) {
 
@@ -27,63 +30,45 @@ class ExpenseRepository(private val db: AppDatabase) {
 
     suspend fun getForProject(projectId: Long): List<Expense> = db.expenseDao().getForProject(projectId)
 
-    suspend fun addExpense(expense: Expense): Long {
+    suspend fun addExpense(expense: Expense): Long = db.withTransaction {
         val expenseId = db.expenseDao().insert(expense)
-
-        if (expense.direction == TransactionDirection.EXPENSE) {
-            if (expense.type == ExpenseType.MATERIAL) {
-                db.materialPurchaseDao().insert(
-                    MaterialPurchase(
-                        projectId = expense.projectId,
-                        materialName = expense.itemOrMaterialName,
-                        expenseId = expenseId,
-                        date = expense.date,
-                        quantity = expense.quantity,
-                        rate = expense.rate,
-                        amount = expense.totalAmount,
-                        vendorId = expense.vendorId
-                    )
-                )
-            }
-
-            expense.vendorId?.let { vendorId ->
-                db.vendorDao().getById(vendorId)?.let { vendor: Vendor ->
-                    db.vendorDao().update(vendor.copy(amountPaid = vendor.amountPaid + expense.totalAmount))
-                }
-            }
-        }
-
-        return expenseId
+        applySideEffects(expense.copy(id = expenseId))
+        expense.vendorId?.let { recalculateVendorPaid(it) }
+        expenseId
     }
 
-    suspend fun updateExpense(oldExpense: Expense, newExpense: Expense) {
-        // Reverse old vendor impact, apply new — keeps vendor payable accurate on edits.
-        // Only EXPENSE-direction rows ever touched vendor payable in the first place.
-        if (oldExpense.direction == TransactionDirection.EXPENSE) {
-            oldExpense.vendorId?.let { vendorId ->
-                db.vendorDao().getById(vendorId)?.let { vendor ->
-                    db.vendorDao().update(vendor.copy(amountPaid = (vendor.amountPaid - oldExpense.totalAmount).coerceAtLeast(0.0)))
-                }
-            }
-        }
+    suspend fun updateExpense(oldExpense: Expense, newExpense: Expense) = db.withTransaction {
+        db.materialPurchaseDao().deleteForExpense(oldExpense.id)
         db.expenseDao().update(newExpense)
-        if (newExpense.direction == TransactionDirection.EXPENSE) {
-            newExpense.vendorId?.let { vendorId ->
-                db.vendorDao().getById(vendorId)?.let { vendor ->
-                    db.vendorDao().update(vendor.copy(amountPaid = vendor.amountPaid + newExpense.totalAmount))
-                }
-            }
+        applySideEffects(newExpense)
+        setOfNotNull(oldExpense.vendorId, newExpense.vendorId).forEach { recalculateVendorPaid(it) }
+    }
+
+    suspend fun deleteExpense(expense: Expense) = db.withTransaction {
+        db.materialPurchaseDao().deleteForExpense(expense.id)
+        db.expenseDao().delete(expense)
+        expense.vendorId?.let { recalculateVendorPaid(it) }
+    }
+
+    private suspend fun applySideEffects(expense: Expense) {
+        if (expense.direction == TransactionDirection.EXPENSE && expense.type == ExpenseType.MATERIAL) {
+            db.materialPurchaseDao().insert(
+                MaterialPurchase(
+                    projectId = expense.projectId,
+                    materialName = expense.itemOrMaterialName,
+                    expenseId = expense.id,
+                    date = expense.date,
+                    quantity = expense.quantity,
+                    rate = expense.rate,
+                    amount = expense.totalAmount,
+                    vendorId = expense.vendorId
+                )
+            )
         }
     }
 
-    suspend fun deleteExpense(expense: Expense) {
-        if (expense.direction == TransactionDirection.EXPENSE) {
-            expense.vendorId?.let { vendorId ->
-                db.vendorDao().getById(vendorId)?.let { vendor ->
-                    db.vendorDao().update(vendor.copy(amountPaid = (vendor.amountPaid - expense.totalAmount).coerceAtLeast(0.0)))
-                }
-            }
-        }
-        db.expenseDao().delete(expense)
+    private suspend fun recalculateVendorPaid(vendorId: Long) {
+        val vendor = db.vendorDao().getById(vendorId) ?: return
+        db.vendorDao().update(vendor.copy(amountPaid = db.expenseDao().sumPaidToVendor(vendorId)))
     }
 }

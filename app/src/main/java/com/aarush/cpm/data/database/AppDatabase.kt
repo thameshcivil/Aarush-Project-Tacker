@@ -32,9 +32,10 @@ import com.aarush.cpm.data.entity.*
         AppSettings::class,
         ProjectAreaComponent::class,
         BOQNotation::class,
-        MaterialRateCard::class
+        MaterialRateCard::class,
+        ActivityProgressLog::class
     ],
-    version = 7,
+    version = AppDatabase.VERSION,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -61,11 +62,16 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun projectAreaComponentDao(): ProjectAreaComponentDao
     abstract fun boqNotationDao(): BOQNotationDao
     abstract fun materialRateCardDao(): MaterialRateCardDao
+    abstract fun activityProgressLogDao(): ActivityProgressLogDao
 
     companion object {
         /** File name of the underlying SQLite database — also used by the backup/restore
          *  feature (DatabaseBackupHelper) to locate the live file via context.getDatabasePath(). */
         const val DB_NAME = "aarush_cpm.db"
+
+        /** Current schema version. Also used by restore-from-backup to reject a backup made
+         *  by a newer app version (Room cannot downgrade a schema). */
+        const val VERSION = 8
 
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -161,6 +167,98 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 → v8:
+         *  1. Rebuilds boq_items. MIGRATION_2_3 added a `quantityMode` column that the entity
+         *     dropped in v4 — Room's schema validation rejects the extra column, so any install
+         *     (or restored backup) that ever passed through v3 crashed on open. The rebuild
+         *     copies every row into the exact v8 shape (minus quantityMode, plus `floor`).
+         *  2. Schedule module: new columns on schedule_activities / schedule_dependencies,
+         *     the activity_progress_logs table, and material_usages.progressLogId.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS boq_items_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        projectId INTEGER NOT NULL,
+                        itemCode TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        unit TEXT NOT NULL,
+                        quantity REAL NOT NULL,
+                        rate REAL NOT NULL,
+                        amount REAL NOT NULL,
+                        labourQuantity REAL NOT NULL,
+                        labourRate REAL NOT NULL,
+                        labourAmount REAL NOT NULL,
+                        materialType TEXT NOT NULL,
+                        wastePercent REAL NOT NULL,
+                        sets REAL NOT NULL,
+                        perMember REAL NOT NULL,
+                        length REAL NOT NULL,
+                        breadth REAL NOT NULL,
+                        depth REAL NOT NULL,
+                        notes TEXT NOT NULL,
+                        floor TEXT NOT NULL DEFAULT '',
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO boq_items_new (id, projectId, itemCode, category, description, unit, quantity,
+                        rate, amount, labourQuantity, labourRate, labourAmount, materialType, wastePercent,
+                        sets, perMember, length, breadth, depth, notes, floor, createdAt)
+                    SELECT id, projectId, itemCode, category, description, unit, quantity,
+                        rate, amount, labourQuantity, labourRate, labourAmount, materialType, wastePercent,
+                        sets, perMember, length, breadth, depth, notes, '', createdAt
+                    FROM boq_items
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE boq_items")
+                db.execSQL("ALTER TABLE boq_items_new RENAME TO boq_items")
+
+                val activityColumns = listOf(
+                    "phase TEXT NOT NULL DEFAULT ''",
+                    "sequence INTEGER NOT NULL DEFAULT 0",
+                    "floorLabel TEXT NOT NULL DEFAULT ''",
+                    "templateKey TEXT NOT NULL DEFAULT ''",
+                    "category TEXT NOT NULL DEFAULT 'OTHER_MISC'",
+                    "linkedNotationCode TEXT NOT NULL DEFAULT ''",
+                    "boqSharePercent REAL NOT NULL DEFAULT 100",
+                    "quantityOverride REAL",
+                    "durationDays INTEGER NOT NULL DEFAULT 1",
+                    "isDurationManual INTEGER NOT NULL DEFAULT 0",
+                    "productivityPerDay REAL NOT NULL DEFAULT 0",
+                    "budgetWeight REAL NOT NULL DEFAULT 1",
+                    "budgetOverride REAL",
+                    "completedQuantity REAL NOT NULL DEFAULT 0",
+                    "isMilestone INTEGER NOT NULL DEFAULT 0",
+                    "notes TEXT NOT NULL DEFAULT ''"
+                )
+                activityColumns.forEach { db.execSQL("ALTER TABLE schedule_activities ADD COLUMN $it") }
+                db.execSQL("ALTER TABLE schedule_dependencies ADD COLUMN lagDays INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS activity_progress_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        projectId INTEGER NOT NULL,
+                        activityId INTEGER NOT NULL,
+                        date INTEGER NOT NULL,
+                        quantityDone REAL NOT NULL,
+                        percentComplete REAL,
+                        labourCount INTEGER NOT NULL,
+                        notes TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("ALTER TABLE material_usages ADD COLUMN progressLogId INTEGER")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -168,7 +266,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build().also { INSTANCE = it }
             }
 

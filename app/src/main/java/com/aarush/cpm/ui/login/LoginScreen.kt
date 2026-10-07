@@ -1,7 +1,10 @@
 package com.aarush.cpm.ui.login
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Construction
@@ -51,6 +54,9 @@ class LoginViewModel(
             authPreferences.rememberedEmail.collectLatest { email ->
                 _uiState.value = _uiState.value.copy(
                     rememberedEmail = email,
+                    // Keep "Remember me" ticked for a remembered account, so signing in again
+                    // with the password doesn't silently forget it.
+                    rememberMe = email != null || _uiState.value.rememberMe,
                     // Pre-fill the identifier field too, so even without biometrics the
                     // person only has to type their password — the actual "remember me" fix.
                     usernameOrEmail = if (email != null && _uiState.value.usernameOrEmail.isBlank()) email else _uiState.value.usernameOrEmail
@@ -65,6 +71,12 @@ class LoginViewModel(
     fun toggleCreateAccountMode() { _uiState.value = _uiState.value.copy(isCreateAccountMode = !_uiState.value.isCreateAccountMode, error = null) }
     fun onCreateUsernameChange(v: String) { _uiState.value = _uiState.value.copy(createUsername = v) }
     fun onCreateEmailChange(v: String) { _uiState.value = _uiState.value.copy(createEmail = v) }
+
+    /** Accounts are local to this device (no server to email a reset link from). */
+    fun showForgotPasswordInfo() {
+        _uiState.value = _uiState.value.copy(error = "Accounts are stored only on this device, so a reset link can't be emailed. " +
+            "Use Sign in with Google or biometrics if set up, or create a new account — your projects stay on the device.")
+    }
 
     private suspend fun rememberOrForget(email: String, rememberMe: Boolean) {
         if (rememberMe) authPreferences.setRememberedEmail(email) else authPreferences.clearRememberedEmail()
@@ -159,19 +171,26 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .systemBarsPadding()
+            .imePadding()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(Icons.Filled.Construction, contentDescription = null, modifier = Modifier.size(56.dp))
-        Spacer(Modifier.height(8.dp))
-        Text("Aarush Construction", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-        Text("Project Management System", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Box(
+            Modifier.size(56.dp).background(com.aarush.cpm.ui.theme.SiteTheme.colors.accent, androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Filled.Construction, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(32.dp)) }
+        Spacer(Modifier.height(16.dp))
+        Text("Aarush Construction", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(4.dp))
+        com.aarush.cpm.ui.common.SectionLabel("Project management · site ledger")
         Spacer(Modifier.height(32.dp))
 
         if (!state.isCreateAccountMode) {
             if (state.rememberedEmail != null && biometricAvailable && activity != null) {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                com.aarush.cpm.ui.common.AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Welcome back", style = MaterialTheme.typography.titleMedium)
                         Text(state.rememberedEmail!!, style = MaterialTheme.typography.bodySmall)
@@ -218,7 +237,7 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
                 Checkbox(checked = state.rememberMe, onCheckedChange = viewModel::onRememberMeChange)
                 Text("Remember me")
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { /* Forgot password - V1 stub for local auth */ }) { Text("Forgot password?") }
+                TextButton(onClick = { viewModel.showForgotPasswordInfo() }) { Text("Forgot password?") }
             }
             state.error?.let {
                 Spacer(Modifier.height(4.dp))
@@ -228,7 +247,8 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
             Button(
                 onClick = { viewModel.login(onLoginSuccess) },
                 enabled = !state.isLoading,
-                modifier = Modifier.fillMaxWidth()
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
                 if (state.isLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("Login")
@@ -246,7 +266,8 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
             OutlinedButton(
                 onClick = { viewModel.loginWithGoogle(context, onLoginSuccess) },
                 enabled = !state.isLoading,
-                modifier = Modifier.fillMaxWidth()
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) { Text("Sign in with Google") }
         } else {
             OutlinedTextField(
@@ -281,7 +302,8 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
             Button(
                 onClick = { viewModel.createAccount(onLoginSuccess) },
                 enabled = !state.isLoading,
-                modifier = Modifier.fillMaxWidth()
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) { Text("Create account & continue") }
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = viewModel::toggleCreateAccountMode) { Text("Back to login") }

@@ -43,6 +43,15 @@ interface MaterialRateCardDao {
     @Query("SELECT * FROM material_rates WHERE projectId = :projectId ORDER BY description")
     suspend fun getForProject(projectId: Long): List<MaterialRateCard>
 
+    @Query("SELECT * FROM material_rates WHERE linkedVendorId = :vendorId")
+    suspend fun getForVendor(vendorId: Long): List<MaterialRateCard>
+
+    @Query("DELETE FROM material_rates WHERE linkedVendorId = :vendorId")
+    suspend fun deleteForVendor(vendorId: Long)
+
+    @Query("UPDATE material_rates SET description = :newName WHERE projectId = :projectId AND description = :oldName")
+    suspend fun rename(projectId: Long, oldName: String, newName: String)
+
     @Query("DELETE FROM material_rates WHERE projectId = :projectId")
     suspend fun deleteForProject(projectId: Long)
 }

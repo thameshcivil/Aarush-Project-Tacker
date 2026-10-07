@@ -23,4 +23,7 @@ interface VendorDao {
 
     @Query("SELECT * FROM vendors WHERE id = :id")
     suspend fun getById(id: Long): Vendor?
+
+    @Query("DELETE FROM vendors WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

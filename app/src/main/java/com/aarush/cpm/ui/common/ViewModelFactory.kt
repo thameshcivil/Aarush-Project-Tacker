@@ -27,7 +27,7 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 ) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.boq.BOQViewModel::class.java) ->
-                com.aarush.cpm.ui.boq.BOQViewModel(container.boqRepository, container.materialRepository) as T
+                com.aarush.cpm.ui.boq.BOQViewModel(container.boqRepository, container.materialRepository, container.projectRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.expense.ExpenseViewModel::class.java) ->
                 com.aarush.cpm.ui.expense.ExpenseViewModel(container.expenseRepository, container.materialRepository, container.vendorRepository) as T
@@ -36,10 +36,13 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 com.aarush.cpm.ui.vendor.VendorViewModel(container.vendorRepository, container.projectRepository, container.expenseRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.settings.SettingsViewModel::class.java) ->
-                com.aarush.cpm.ui.settings.SettingsViewModel(container.sampleDataSeeder, container.database) as T
+                com.aarush.cpm.ui.settings.SettingsViewModel(container.sampleDataSeeder, container.database, container.projectRepository, container.authPreferencesRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.settings.ProjectSettingsViewModel::class.java) ->
-                com.aarush.cpm.ui.settings.ProjectSettingsViewModel(container.boqRepository, container.materialRepository) as T
+                com.aarush.cpm.ui.settings.ProjectSettingsViewModel(container.boqRepository, container.materialRepository, container.projectRepository) as T
+
+            modelClass.isAssignableFrom(com.aarush.cpm.ui.schedule.ScheduleViewModel::class.java) ->
+                com.aarush.cpm.ui.schedule.ScheduleViewModel(container.scheduleRepository, container.projectRepository, container.boqRepository, container.vendorRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.material.MaterialStatusViewModel::class.java) ->
                 com.aarush.cpm.ui.material.MaterialStatusViewModel(container.materialRepository) as T

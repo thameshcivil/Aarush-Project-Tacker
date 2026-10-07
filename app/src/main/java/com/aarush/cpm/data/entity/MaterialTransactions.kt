@@ -25,5 +25,8 @@ data class MaterialUsage(
     val materialName: String,
     val date: Long,
     val quantityUsed: Double,
-    val notes: String = ""
+    val notes: String = "",
+    /** Set when this usage was generated automatically from a schedule progress log
+     *  (quantity done × coefficient × waste). Deleting/editing that log removes it. */
+    val progressLogId: Long? = null
 )

@@ -57,7 +57,7 @@ fun AarushNavGraph(appContainer: AppContainer) {
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 0.dp) {
                     bottomTabs.forEach { tab ->
                         NavigationBarItem(
                             selected = currentRoute == tab.route,
@@ -69,7 +69,12 @@ fun AarushNavGraph(appContainer: AppContainer) {
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) }
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = com.aarush.cpm.ui.theme.SiteTheme.colors.accent,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                indicatorColor = com.aarush.cpm.ui.theme.SiteTheme.colors.accentTint
+                            )
                         )
                     }
                 }
@@ -114,7 +119,9 @@ fun AarushNavGraph(appContainer: AppContainer) {
             }
             composable(Routes.SETTINGS) {
                 val vm: SettingsViewModel = viewModel(factory = factory)
-                SettingsScreen(viewModel = vm)
+                SettingsScreen(viewModel = vm, onSignOut = {
+                    navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+                })
             }
         }
     }

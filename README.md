@@ -34,11 +34,15 @@ remaining manually editable at every step.
 - **Cash flow**: money in vs money out vs running balance
 - **Project dashboard**: budget-vs-actual by category, material status, days remaining,
   progress %
-- **Sample/demo project** (Residential Building, 2000 sqft @ ₹2,500/sqft) — flagged and
-  deletable as a group
-- Data-layer support (entities/DAOs/repositories) for construction schedule, labour
-  prediction, shortage alerts, and reports — see [Roadmap](#roadmap) for what's wired to
-  a screen today vs what's scaffolded for the next phase
+- **Construction schedule & tracking** (new in 1.1) — the complete residential work
+  sequence generated from the BOQ and budget, critical-path baseline, daily site progress
+  log, forecast vs baseline, delays, earned value (SPI/CPI/EAC), S-curve, Gantt chart,
+  two-week look-ahead of labour and materials vs stock, automatic alerts, CSV export —
+  see [Schedule & tracking](#schedule--tracking)
+- **Editable project settings** — details, status, dates, floors, value override and the
+  cost-distribution table (validated to 100%)
+- **Sample/demo project** (G+1 residence, 2000 sqft @ ₹2,500/sqft) built through the real
+  repository paths, with a generated schedule and site progress — removable in one tap
 
 ## Technology stack
 
@@ -72,20 +76,11 @@ remaining manually editable at every step.
    `gradle/wrapper/gradle-wrapper.properties`).
 4. Run the `app` configuration on an emulator or physical device (API 26+).
 
-### Getting the Gradle wrapper JAR
+### Gradle wrapper
 
-This repository ships `gradlew` / `gradlew.bat` and `gradle-wrapper.properties`, but not
-the binary `gradle-wrapper.jar` (binaries don't belong in source control review, and this
-project was generated in an offline sandbox with no network access to fetch it). Before
-running `./gradlew` from the command line, generate it once with a local Gradle install:
-
-```bash
-gradle wrapper --gradle-version 8.7
-```
-
-Or simply open the project in Android Studio first — it will generate/download the
-wrapper JAR automatically on sync, and from then on `./gradlew` works normally on the
-command line too.
+The repository includes `gradle/wrapper/gradle-wrapper.jar`, so `./gradlew` works straight
+away (it downloads Gradle 8.7 on first run). If it is ever missing, regenerate it with a
+local Gradle install: `gradle wrapper --gradle-version 8.7`.
 
 ### Build an APK from the command line
 
@@ -97,14 +92,15 @@ command line too.
 ### Run tests
 
 ```bash
-./gradlew testDebugUnitTest       # unit tests (CalculationEngine, etc.)
-./gradlew connectedAndroidTest    # instrumented UI tests (needs an emulator/device)
+./gradlew testDebugUnitTest       # unit tests: CalculationEngine + ScheduleEngine (CPM, EV, quantities, budgets)
+./gradlew connectedAndroidTest    # instrumented: UI flow + repository scenarios on a real in-memory Room DB
 ```
 
 ## Login (V1)
 
-Authentication is local/mock in V1 (username or email + password, stored hashed in
-Room), with a "Create account" flow and a "Remember me" toggle. The architecture keeps
+Authentication is local in V1 (username or email + password, stored as salted PBKDF2
+hashes in Room). Accounts and data are per device, not per user — anyone who can open the
+app on the device sees all projects, with a "Create account" flow and a "Remember me" toggle. The architecture keeps
 this behind `AuthRepository`'s interface so a real backend can be swapped in later
 without touching any ViewModel or screen. "Forgot password" is a UI stub in V1 since
 there's no backend to send a reset link through yet.
@@ -146,6 +142,61 @@ is (it never leaves the device). If you add a real backend later, verify the ID 
 server-side before treating someone as logged in, rather than trusting the client alone.
 
 
+## Schedule & tracking
+
+Open a project → **Schedule**. With no schedule yet, **Generate schedule** asks for a start
+date, the number of floors and whether Sunday is a holiday, then builds the full sequence
+for an RCC-framed house:
+
+| Phase | Activities |
+|---|---|
+| 1. Pre-construction | Soil test, survey & approvals · site clearing & setting out · temporary water/power/store |
+| 2. Substructure | Excavation · anti-termite · PCC · footings · columns to plinth · basement masonry · plinth beam · backfilling · DPC · floor-bed PCC |
+| 3. Superstructure (each floor) | Columns · beams & slab · curing & de-shuttering · 9" brickwork · 4.5" partitions · lintels/sunshades/lofts · electrical conduits · concealed plumbing |
+| 4. Terrace | Parapet & headroom · waterproofing & weathering course |
+| 5. Services | Septic tank/sump/OHT · wiring, DB & fixtures · sanitary & CP fittings |
+| 6. Finishes (each floor) | Door/window frames · internal plaster · floor tiling · dado · skirting · putty & primer; external plaster · granite · shutters/grills · internal & external painting |
+| 7. Handover | Compound wall, gate & paving · cleaning, snag list & handover |
+
+**How it uses the BOQ and the budget**
+
+- **Quantities** — each activity is linked to a BOQ notation. Tag BOQ entries with their
+  floor (new *Floor / location* field on the BOQ form) and that floor's activities get the
+  exact measured quantity; untagged quantity is shared by each activity's share %.
+- **Durations** — quantity ÷ crew output per day (e.g. 9" brickwork 100 cft/day for a crew of
+  8), editable per activity, or a fixed duration for non-measured work.
+- **Budgets** — civil activities get their BOQ material cost (quantity × coefficients × rate
+  card) plus a share of civil labour contracts by man-days; MEP, painting, tiling, joinery and
+  other activities share their category's % of Budget 1 by weight. The total reconciles with
+  Budget 2.
+- **Baseline** — a critical-path (CPM) pass over finish-to-start links with lags (e.g. 14-day
+  slab curing), on a 6- or 7-day working week. Project start/expected completion update to match.
+
+**Tracking**
+
+- **Log progress** daily: quantity done (or % for non-measured work) and workers on site.
+  Each log books material consumption out of stock (quantity × coefficient × waste), so
+  Material Status shows real *Used* and *In stock* figures.
+- **Forecast** — completed work keeps its actual dates, running work finishes after its
+  remaining share, and nothing unstarted can begin before today; delays roll through the
+  network to a forecast handover date.
+- **Earned value** — PV, EV, actual cost of work (spend − material still in store), SPI,
+  CPI, estimate at completion; overall progress feeds the project card and Home tab.
+- **S-curve**, **Gantt** (baseline vs forecast, critical path, milestones, today line),
+  **look-ahead** (next 14 days: activities, labour by skill, materials needed vs stock),
+  **alerts** (delays, shortages, cost overrun, vendor dues, client billing, handover approaching),
+  and **Export to CSV**.
+- **Update quantities from BOQ** after re-measuring, **Re-baseline** after a major change.
+
+## Design
+
+The UI uses a "site ledger" system chosen from Inspo references for technical work tools
+(LlamaIndex, Smartsheet, Morgen): warm paper background, white sheets with 1dp hairlines
+instead of shadows, small uppercase mono labels over large tabular figures, ink-black
+rectangular primary buttons and a single safety-orange accent — with blueprint blue used
+only for *planned/baseline* against orange *actual*. Tokens and shared components live in
+`ui/theme/Theme.kt` and `ui/common/Components.kt`; light and dark themes are both defined.
+
 ## Database
 
 See [`docs/DATABASE.md`](docs/DATABASE.md) for the full entity-relationship notes,
@@ -167,18 +218,15 @@ _Add screenshots here once you've run the app — e.g._
 
 ## Roadmap
 
-Built in the phased order below. Phases 1–3 have working screens end-to-end; Phase 4
-has Vendor + Client Payment screens plus P&L/cash-flow figures on the project dashboard;
-Phases 5–6 have their data layer (entities, DAOs, repositories) in place but no
-dedicated screen yet — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#whats-scaffolded-but-not-yet-wired-to-a-screen).
+Built in the phased order below.
 
 - [x] **Phase 1** — Login → Project → Project Value → Cost Distribution → Dashboard
 - [x] **Phase 2** — BOQ → Material Coefficients → Material Requirement
 - [x] **Phase 3** — Expenses → Purchases → Inventory
-- [x] **Phase 4 (partial)** — Vendors → Client Payments → Profit (on dashboard) →
-      Cash Balance (on dashboard)
-- [ ] **Phase 5** — Schedule screen, labour prediction UI, material shortage alerts UI
-- [ ] **Phase 6** — Reports (PDF/Excel export), notifications UI, further polish
+- [x] **Phase 4** — Vendors → Received payments → Profit → Cash balance (Home tab)
+- [x] **Phase 5** — Schedule & tracking, labour look-ahead, material shortage alerts
+- [x] **Phase 6 (partial)** — Alerts on Home/Schedule, CSV export of the schedule
+- [ ] Next — PDF reports, push notifications for alerts, photo attachments
 
 ### Future expansion (by design, not yet built)
 
@@ -190,7 +238,56 @@ analytics.
 
 ## Changelog
 
-**Since first build:**
+**1.1.0 — schedule, bug fixes, new design**
+
+*New*
+- Construction schedule & tracking tab (see above), driven by the BOQ and budget.
+- BOQ entries take a floor/location tag; picking a tiling/dado/granite notation defaults the
+  category to Tiling; at least one measurement is required (a blank form no longer saves "1").
+- Project Settings → **Project** tab: edit name, client, location, type, floors, status,
+  start/expected dates, value override and the cost-distribution % / material-labour split.
+- Expense form: optional **Category** override (default *Auto*).
+- Home: schedule health card and alerts; Material Status split into stock materials, labour
+  contracts and other purchases.
+- Settings: remove demo data, sign out. Login: "Forgot password" explains local accounts.
+- Redesigned UI (see Design).
+
+*Fixed*
+- Saving project Settings rebuilt the rate card without `linkedVendorId`, silently breaking
+  every vendor ↔ expense link. Vendor lines are now owned by the Vendors tab and preserved.
+- Settings' fixed six-column coefficient table dropped any other material's coefficients and
+  all waste overrides on save. Columns are now dynamic and waste overrides are kept.
+- Renaming a notation code orphaned BOQ items; renaming a rate-card material detached its
+  purchases/expenses. Renames now propagate everywhere.
+- Editing an expense left its old MaterialPurchase in place; deleting left it behind; delete
+  + Undo doubled stock. Purchases now follow the expense exactly; vendor paid is re-derived
+  from expenses so it can't drift.
+- Crash on upgrade: v2→v3 added `boq_items.quantityMode`, which later versions dropped from
+  the entity, failing Room's schema check for any install (or restored backup) that passed
+  through v3. Migration 7→8 rebuilds the table.
+- Restore accepted any file and overwrote the database. It now validates the SQLite header,
+  tables and schema version first and keeps a safety copy.
+- Deleting a project left all its rows orphaned (and had no confirmation); deleting a vendor
+  left its labour line; vendor Undo created a new id that lost its payment history. All fixed.
+- Multi-table writes (create project + defaults, expenses, vendors, settings, schedule) now
+  run in database transactions.
+- Electrical, tiles, doors, paint and similar purchases all landed in Other/Misc. Category is
+  now inferred from the BOQ, then from the material name (or chosen).
+- Vendor contract preview disagreed with the saved value for Percentage, Custom and a blank
+  quantity — both now use the same formula, with proper fields per basis.
+- Editing a steel purchase showed empty rod rows and couldn't be saved; the rod breakdown is
+  restored (legacy entries edit as qty × rate).
+- Expenses "by date" grouped by UTC day (IST mornings showed under the previous day); dates
+  from pickers are now timezone-safe.
+- Budget 2 double-counted non-civil BOQ material (e.g. tile laying) on top of that category's
+  % of Budget 1.
+- Passwords are now salted PBKDF2 (old SHA-256 accounts upgrade on next login); "Remember me"
+  stays ticked for a remembered account.
+- Project list totals went stale after editing a project; refreshed on return.
+- Generated the missing `gradle-wrapper.jar`, so `./gradlew` and CI run; the instrumented
+  sign-up test no longer fails on its second run.
+
+**1.0.x:**
 - BOQ now has a **Sort by: Notations / Description** toggle with two-level nested
   grouping — sorting by Notations puts item codes as the main group and descriptions as
   sub-groups (or vice versa for Description); entries sharing both collapse into one
@@ -300,15 +397,6 @@ analytics.
   line rather than folding it into the material's amount. Quantity/Rate/Unit and Save
   work as before.
 
-- Expenses were redesigned around a real material rate card: **Received/Expense**
-  direction toggle (so a refund or adjustment can be logged from the same form without
-  counting as spend), a **Date** picker, **mode of payment**, and a **material picker**
-  sourced from the project's rate card (Cement, P.Sand, M.Sand, Bricks, Aggregates,
-  Steel, Tiles, Painting, Gravel, Door/Window/Electrical/Plumbing, Extra Labours &
-  Machinaries, and now **Labour Cost for Civil Vendor**) that auto-fills unit and rate.
-  A **"+ Add Freight & Unloading Charges"** button adds that as its own linked expense
-  line rather than folding it into the material's amount. Quantity/Rate/Unit and Save
-  work as before.
 - Removed the standalone **Payments** tab — merged into Expenses. Expense/Received is
   now a filter at the top of the Expense tab (not just a field inside the Add dialog):
   "Expense" shows the grouped spend list, "Received" shows a flat list of amounts

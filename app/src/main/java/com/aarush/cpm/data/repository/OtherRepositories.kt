@@ -2,9 +2,10 @@ package com.aarush.cpm.data.repository
 
 import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.*
+import androidx.room.withTransaction
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.domain.calculation.CategoryRules
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 
 class BOQRepository(private val db: AppDatabase) {
     fun observeForProject(projectId: Long): Flow<List<BOQItem>> = db.boqDao().observeForProject(projectId)
@@ -18,10 +19,24 @@ class BOQRepository(private val db: AppDatabase) {
     fun observeNotations(projectId: Long): Flow<List<BOQNotation>> = db.boqNotationDao().observeForProject(projectId)
     suspend fun getNotations(projectId: Long): List<BOQNotation> = db.boqNotationDao().getForProject(projectId)
 
-    /** Full replace-all save for the project's Settings screen: the notation list and its
-     *  per-material coefficients are edited together as one table, so they're saved together —
-     *  simpler and safer than diffing individual row edits/inserts/deletes. */
-    suspend fun replaceNotationsAndCoefficients(projectId: Long, notations: List<BOQNotation>, coefficients: List<MaterialCoefficient>) {
+    /**
+     * Full replace-all save for the project's Settings screen: the notation list and its
+     * per-material coefficients are edited together as one table, so they're saved together.
+     * [renames] (old code → new code) are applied first to every BOQ item and schedule
+     * activity using the old code, so renaming a notation never orphans existing measurements.
+     * Runs in one transaction.
+     */
+    suspend fun replaceNotationsAndCoefficients(
+        projectId: Long,
+        notations: List<BOQNotation>,
+        coefficients: List<MaterialCoefficient>,
+        renames: Map<String, String> = emptyMap()
+    ) = db.withTransaction {
+        renames.filter { (old, new) -> old.isNotBlank() && new.isNotBlank() && old != new }.forEach { (old, new) ->
+            db.boqDao().renameItemCode(projectId, old, new)
+            db.boqDao().renameMaterialType(projectId, old, new)
+            db.scheduleActivityDao().renameNotation(projectId, old, new)
+        }
         db.boqNotationDao().deleteForProject(projectId)
         db.materialCoefficientDao().deleteForProject(projectId)
         db.boqNotationDao().insertAll(notations)
@@ -38,10 +53,7 @@ class MaterialRepository(private val db: AppDatabase) {
      * Infers a CostCategory for a material name by tracing it through the coefficient engine:
      * material → the BOQ notation(s) that consume it (via MaterialCoefficient.workItemKey) →
      * the category of the BOQ item(s) using that notation. Returns null when the material
-     * isn't referenced by any coefficient/BOQ item (e.g. a vendor's linked "Labour Cost for
-     * <Vendor>" line, which was never meant to be tracked as a stock material) — the caller
-     * falls back to a default category in that case. Keeps Budget-vs-Actual meaningful even
-     * though the simplified Expense form no longer asks for category directly.
+     * isn't referenced by any coefficient/BOQ item.
      */
     suspend fun inferCategoryForMaterial(projectId: Long, materialName: String): CostCategory? {
         val relevantWorkItemKeys = db.materialCoefficientDao().getForProject(projectId)
@@ -53,10 +65,19 @@ class MaterialRepository(private val db: AppDatabase) {
         val matchingBoqItems = db.boqDao().getForProject(projectId).filter { it.materialType in relevantWorkItemKeys }
         if (matchingBoqItems.isEmpty()) return null
 
-        // Most common category among the BOQ items that consume this material, in case it's
-        // used by notations spanning more than one category.
         return matchingBoqItems.groupingBy { it.category }.eachCount().maxByOrNull { it.value }?.key
     }
+
+    /**
+     * Category for an expense line: BOQ/coefficient trace first, then name keywords
+     * (Electrical → MEP, Floor Tile → Tiling, Door → Joinery, Paint → Painting, Cement → Civil),
+     * then Other/Misc. Previously every non-coefficient item (electrical, tiles, doors…)
+     * silently landed in Other/Misc.
+     */
+    suspend fun resolveCategory(projectId: Long, materialName: String): CostCategory =
+        inferCategoryForMaterial(projectId, materialName)
+            ?: CategoryRules.categoryForMaterialName(materialName)
+            ?: CostCategory.OTHER_MISC
 
     fun observeCoefficients(projectId: Long): Flow<List<MaterialCoefficient>> =
         db.materialCoefficientDao().observeForProject(projectId)
@@ -73,11 +94,51 @@ class MaterialRepository(private val db: AppDatabase) {
     fun observeMaterialRates(projectId: Long): Flow<List<MaterialRateCard>> = db.materialRateCardDao().observeForProject(projectId)
     suspend fun getMaterialRates(projectId: Long): List<MaterialRateCard> = db.materialRateCardDao().getForProject(projectId)
 
-    /** Full replace-all save for the project's Settings screen — see BOQRepository's
-     *  equivalent for notations/coefficients; same reasoning applies here. */
-    suspend fun replaceMaterialRates(projectId: Long, rates: List<MaterialRateCard>) {
-        db.materialRateCardDao().deleteForProject(projectId)
-        db.materialRateCardDao().insertAll(rates)
+    /**
+     * Replace-all save of the editable (non-vendor) rate card rows from project Settings.
+     * Vendor-linked "Labour Cost for <Vendor>" rows are owned by the Vendors tab and are
+     * NEVER touched here — the previous version rebuilt every row without linkedVendorId,
+     * which silently broke every vendor↔expense link on the first Settings save.
+     * [renames] (old name → new name) are propagated to coefficients, materials, purchases,
+     * usages and past expenses first, so renaming "Cement" keeps its whole history attached.
+     */
+    suspend fun replaceMaterialRates(
+        projectId: Long,
+        rates: List<MaterialRateCard>,
+        renames: Map<String, String> = emptyMap()
+    ) = db.withTransaction {
+        renames.filter { (old, new) -> old.isNotBlank() && new.isNotBlank() && old != new }
+            .forEach { (old, new) -> renameMaterialInternal(projectId, old, new) }
+        val existing = db.materialRateCardDao().getForProject(projectId)
+        existing.filter { it.linkedVendorId == null }.forEach { db.materialRateCardDao().delete(it) }
+        db.materialRateCardDao().insertAll(rates.filter { it.linkedVendorId == null }.map { it.copy(id = 0, projectId = projectId) })
+    }
+
+    private suspend fun renameMaterialInternal(projectId: Long, old: String, new: String) {
+        db.materialDao().rename(projectId, old, new)
+        db.materialCoefficientDao().renameMaterial(projectId, old, new)
+        db.materialPurchaseDao().rename(projectId, old, new)
+        db.materialUsageDao().rename(projectId, old, new)
+        db.expenseDao().renameMaterial(projectId, old, new)
+    }
+
+    /**
+     * Material quantity needed per 1 unit of each notation, waste included:
+     * notation → (material → coefficient × (1 + waste%)). Waste is the coefficient's own
+     * override, else the quantity-weighted average waste % of that notation's BOQ items
+     * (3% if none). Used by the schedule for consumption and look-ahead requirements.
+     */
+    suspend fun materialPerUnitByNotation(projectId: Long): Map<String, Map<String, Double>> {
+        val boq = db.boqDao().getForProject(projectId)
+        val coefficients = db.materialCoefficientDao().getForProject(projectId)
+        return coefficients.filter { it.coefficientPerUnit > 0 }.groupBy { it.workItemKey }.mapValues { (code, coeffs) ->
+            val items = boq.filter { it.materialType == code }
+            val qty = items.sumOf { it.quantity }
+            val avgWaste = if (qty > 0) items.sumOf { it.quantity * it.wastePercent } / qty else 3.0
+            coeffs.associate { c ->
+                c.materialName to CalculationEngine.totalRequiredQuantity(c.coefficientPerUnit, c.wastePercentOverride ?: avgWaste)
+            }
+        }
     }
 
     /**
@@ -95,22 +156,19 @@ class MaterialRepository(private val db: AppDatabase) {
         val vendors = db.vendorDao().getForProject(projectId)
         val expenses = db.expenseDao().getForProject(projectId).filter { it.direction == TransactionDirection.EXPENSE }
 
+        val vendorLinkedNames = rateCards.filter { it.linkedVendorId != null }.associateBy { it.description }
+        val trackedNames = (materials.map { it.name } + coefficients.filter { it.coefficientPerUnit > 0 }.map { it.materialName }).toSet()
         val materialNames = (materials.map { it.name } +
-                coefficients.map { it.materialName } +
+                coefficients.filter { it.coefficientPerUnit > 0 }.map { it.materialName } +
                 purchases.map { it.materialName } +
-                rateCards.filter { it.linkedVendorId != null }.map { it.description }).distinct()
+                vendorLinkedNames.keys).distinct()
 
         return materialNames.map { name ->
-            val linkedVendor = rateByName[name]?.linkedVendorId?.let { id -> vendors.find { it.id == id } }
+            val linkedVendor = vendorLinkedNames[name]?.linkedVendorId?.let { id -> vendors.find { it.id == id } }
 
             if (linkedVendor != null) {
-                // A vendor-linked "material" line (e.g. "Labour Cost for <Vendor>") isn't a
-                // real stock material — it never gets a MaterialPurchase row (vendor payments
-                // are tagged with vendorId, not tracked as purchases), so pulling its expensed
-                // amount from `purchases` would always read zero. Its actual spend lives in
-                // the Expense entries tagged with that vendor instead, and its "required"
-                // figure is the vendor's contract value, not a quantity × rate — there's no
-                // meaningful quantity for a labour cost.
+                // A vendor-linked "Labour Cost for <Vendor>" line isn't a stock material: its
+                // spend is the expenses tagged with the vendor and its budget the contract value.
                 val vendorPayments = expenses.filter { it.vendorId == linkedVendor.id }
                 val expensedAmount = vendorPayments.sumOf { it.totalAmount }
                 val requiredBudget = linkedVendor.contractValue
@@ -130,10 +188,10 @@ class MaterialRepository(private val db: AppDatabase) {
                     estimatedRemainingCost = 0.0,
                     balanceHoldingAmount = requiredBudget - expensedAmount,
                     isVendorLinked = true,
+                    isStockTracked = false,
                     purchaseHistory = history
                 )
             } else {
-                // Required = sum over BOQ items whose materialType matches a coefficient row for this material.
                 var required = 0.0
                 coefficients.filter { it.materialName == name }.forEach { coeff ->
                     boqItems.filter { it.materialType == coeff.workItemKey }.forEach { boq ->
@@ -151,11 +209,13 @@ class MaterialRepository(private val db: AppDatabase) {
                 val stock = CalculationEngine.currentStock(purchasedQty, usedQty)
                 val balance = CalculationEngine.balanceToPurchase(required, purchasedQty)
                 val avgRate = CalculationEngine.averagePurchaseRate(expensedAmount, purchasedQty)
-                val estRemaining = CalculationEngine.estimatedRemainingCost(balance, avgRate)
-                val unit = materials.find { it.name == name }?.unit ?: ""
                 val rate = rateByName[name]?.rate ?: 0.0
+                // Remaining cost: at what you've actually been paying, else the rate card.
+                val estRemaining = CalculationEngine.estimatedRemainingCost(balance, if (avgRate > 0) avgRate else rate)
+                val unit = materials.find { it.name == name }?.unit ?: rateByName[name]?.unit
+                    ?: myPurchases.firstOrNull()?.let { p -> expenses.find { it.id == p.expenseId }?.unit } ?: ""
                 val requiredBudget = required * rate
-                val balanceHoldingAmount = requiredBudget - expensedAmount
+                val isTracked = name in trackedNames
 
                 MaterialStatusRow(
                     materialName = name,
@@ -169,12 +229,13 @@ class MaterialRepository(private val db: AppDatabase) {
                     expensedAmount = expensedAmount,
                     averageRate = avgRate,
                     estimatedRemainingCost = estRemaining,
-                    balanceHoldingAmount = balanceHoldingAmount,
+                    balanceHoldingAmount = requiredBudget - expensedAmount,
                     isVendorLinked = false,
+                    isStockTracked = isTracked,
                     purchaseHistory = history
                 )
             }
-        }
+        }.sortedWith(compareBy({ !it.isStockTracked && !it.isVendorLinked }, { it.isVendorLinked }, { it.materialName }))
     }
 }
 
@@ -190,19 +251,19 @@ data class MaterialStatusRow(
     val currentStock: Double,
     /** "Remaining Qty" in the Material Status tab — required not yet purchased. */
     val balanceToPurchase: Double,
-    /** Total actually spent so far — sum of tagged purchases for a real material, or sum of
-     *  Expense entries tagged with the vendor for a vendor-linked row. */
+    /** Total actually spent so far. */
     val expensedAmount: Double,
     val averageRate: Double,
     val estimatedRemainingCost: Double,
     /** requiredBudget − expensedAmount: how much budget is left (negative once overspent). */
     val balanceHoldingAmount: Double,
-    /** True for an auto-generated "Labour Cost for <Vendor>" row — the Material Status tab
-     *  shows only Required budget / Expensed amount / Balance holding for these, since qty/
-     *  stock concepts don't apply to a labour cost. */
+    /** True for an auto-generated "Labour Cost for <Vendor>" row. */
     val isVendorLinked: Boolean = false,
-    /** Individual purchases/payments behind expensedAmount, newest first — shown in the
-     *  Material Status tab's detail popup. */
+    /** True for materials the BOQ coefficient engine computes a requirement for (cement,
+     *  sand, steel…). False for one-off purchases (doors, electrical, tiles…), which have no
+     *  measured requirement, so the tab shows only what was bought and spent for them. */
+    val isStockTracked: Boolean = true,
+    /** Individual purchases/payments behind expensedAmount, newest first. */
     val purchaseHistory: List<MaterialPurchaseEntry> = emptyList()
 )
 
@@ -217,39 +278,64 @@ class VendorRepository(private val db: AppDatabase) {
     fun observeForProject(projectId: Long): Flow<List<Vendor>> = db.vendorDao().observeForProject(projectId)
     suspend fun getForProject(projectId: Long): List<Vendor> = db.vendorDao().getForProject(projectId)
 
+    private fun linkedLine(vendor: Vendor): MaterialRateCard {
+        val (unit, rate) = when (vendor.rateType) {
+            VendorRateType.PER_SQFT -> "Sqft" to vendor.rate
+            else -> "LS" to 0.0
+        }
+        return MaterialRateCard(
+            projectId = vendor.projectId, description = linkedLineName(vendor.name),
+            unit = unit, rate = rate, linkedVendorId = vendor.id
+        )
+    }
+
+    fun linkedLineName(vendorName: String) = "Labour Cost for $vendorName"
+
     suspend fun addVendor(
         projectId: Long, name: String, contact: String, workCategory: VendorWorkCategory,
         rateType: VendorRateType, rate: Double, quantity: Double, projectValue: Double,
         startDate: Long, endDate: Long, paymentTerms: String, notes: String
-    ): Long {
+    ): Long = db.withTransaction {
         val contractValue = CalculationEngine.vendorContractValue(rateType, rate, quantity, projectValue)
-        val vendorId = db.vendorDao().insert(
-            Vendor(
-                projectId = projectId, name = name, contact = contact, workCategory = workCategory,
-                rateType = rateType, rate = rate, quantity = quantity, contractValue = contractValue,
-                startDate = startDate, endDate = endDate, paymentTerms = paymentTerms, notes = notes
-            )
+        val vendor = Vendor(
+            projectId = projectId, name = name, contact = contact, workCategory = workCategory,
+            rateType = rateType, rate = rate, quantity = quantity, contractValue = contractValue,
+            startDate = startDate, endDate = endDate, paymentTerms = paymentTerms, notes = notes
         )
+        val vendorId = db.vendorDao().insert(vendor)
         // Auto-create the linked material line ("Labour Cost for <Vendor>") so this vendor
-        // immediately shows up in the Expense form's material picker — that's how vendor
-        // payments get logged and tracked, no separate vendor selector needed there.
-        val (linkedUnit, linkedRate) = when (rateType) {
-            VendorRateType.PER_SQFT -> "Sqft" to rate
-            else -> "LS" to 0.0
-        }
-        db.materialRateCardDao().insertAll(
-            listOf(
-                MaterialRateCard(
-                    projectId = projectId, description = "Labour Cost for $name",
-                    unit = linkedUnit, rate = linkedRate, linkedVendorId = vendorId
-                )
-            )
-        )
-        return vendorId
+        // immediately shows up in the Expense form's material picker.
+        db.materialRateCardDao().insertAll(listOf(linkedLine(vendor.copy(id = vendorId))))
+        vendorId
     }
 
-    suspend fun updateVendor(vendor: Vendor) = db.vendorDao().update(vendor)
-    suspend fun deleteVendor(vendor: Vendor) = db.vendorDao().delete(vendor)
+    /** Saves edits and keeps the linked material line (name, unit, rate) and the names on
+     *  past payments in step — previously renaming a vendor left "Labour Cost for <old name>". */
+    suspend fun updateVendor(vendor: Vendor) = db.withTransaction {
+        db.vendorDao().update(vendor.copy(amountPaid = db.expenseDao().sumPaidToVendor(vendor.id)))
+        val existingLines = db.materialRateCardDao().getForVendor(vendor.id)
+        val fresh = linkedLine(vendor)
+        if (existingLines.isEmpty()) db.materialRateCardDao().insertAll(listOf(fresh))
+        else existingLines.forEach { db.materialRateCardDao().update(fresh.copy(id = it.id)) }
+        db.expenseDao().renameVendorLine(vendor.id, fresh.description)
+    }
+
+    /** Deletes the vendor and its linked material line. Its past payments stay as expenses
+     *  (real money that was spent) and keep their vendorId, so Undo re-links them. */
+    suspend fun deleteVendor(vendor: Vendor) = db.withTransaction {
+        db.materialRateCardDao().deleteForVendor(vendor.id)
+        db.scheduleActivityDao().clearVendor(vendor.id)
+        db.vendorDao().delete(vendor)
+    }
+
+    /** Undo for delete: re-inserts the vendor with its ORIGINAL id, so every expense still
+     *  tagged with it reconnects, and recreates the linked material line. */
+    suspend fun restoreVendor(vendor: Vendor) = db.withTransaction {
+        db.vendorDao().insert(vendor.copy(amountPaid = db.expenseDao().sumPaidToVendor(vendor.id)))
+        if (db.materialRateCardDao().getForVendor(vendor.id).isEmpty()) {
+            db.materialRateCardDao().insertAll(listOf(linkedLine(vendor)))
+        }
+    }
 }
 
 class ClientPaymentRepository(private val db: AppDatabase) {
@@ -259,19 +345,6 @@ class ClientPaymentRepository(private val db: AppDatabase) {
     suspend fun addPayment(payment: ClientPayment): Long = db.clientPaymentDao().insert(payment)
     suspend fun updatePayment(payment: ClientPayment) = db.clientPaymentDao().update(payment)
     suspend fun deletePayment(payment: ClientPayment) = db.clientPaymentDao().delete(payment)
-}
-
-class ScheduleRepository(private val db: AppDatabase) {
-    fun observeActivities(projectId: Long): Flow<List<ScheduleActivity>> = db.scheduleActivityDao().observeForProject(projectId)
-    suspend fun addActivity(activity: ScheduleActivity): Long = db.scheduleActivityDao().insert(activity)
-    suspend fun updateActivity(activity: ScheduleActivity) = db.scheduleActivityDao().update(activity)
-    suspend fun deleteActivity(activity: ScheduleActivity) = db.scheduleActivityDao().delete(activity)
-
-    fun observeLabourRates(projectId: Long): Flow<List<LabourRate>> = db.labourRateDao().observeForProject(projectId)
-    suspend fun setLabourRates(rates: List<LabourRate>) = db.labourRateDao().insertAll(rates)
-
-    fun observeProgress(projectId: Long): Flow<List<ProjectProgress>> = db.projectProgressDao().observeForProject(projectId)
-    suspend fun addProgress(progress: ProjectProgress): Long = db.projectProgressDao().insert(progress)
 }
 
 class NotificationRepository(private val db: AppDatabase) {

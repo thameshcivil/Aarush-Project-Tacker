@@ -23,4 +23,7 @@ interface ClientPaymentDao {
 
     @Query("SELECT COALESCE(SUM(amountReceived), 0) FROM client_payments WHERE projectId = :projectId")
     fun observeTotalReceived(projectId: Long): Flow<Double>
+
+    @Query("DELETE FROM client_payments WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

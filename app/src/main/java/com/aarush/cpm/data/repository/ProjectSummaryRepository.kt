@@ -5,7 +5,6 @@ import com.aarush.cpm.data.entity.CostAllocation
 import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.entity.Project
 import com.aarush.cpm.data.entity.TransactionDirection
-import com.aarush.cpm.data.entity.VendorWorkCategory
 import com.aarush.cpm.domain.calculation.CalculationEngine
 
 data class CategoryBudgetVsActual(
@@ -56,14 +55,6 @@ data class BudgetComparison(
  *  every card on the Dashboard / Project Detail screen needs. Pure aggregation, no UI. */
 class ProjectSummaryRepository(private val db: AppDatabase) {
 
-    /** Vendor categories counted as "civil labour" for Budget 2's civil total. Other
-     *  categories (Electrician, Plumbing, HVAC, Painting, etc.) stay covered by their
-     *  respective category's percentage-of-Budget-1 allocation instead, so a vendor's
-     *  contract is never counted toward both. */
-    private val civilLabourCategories = setOf(
-        VendorWorkCategory.CIVIL, VendorWorkCategory.STRUCTURAL, VendorWorkCategory.MASON, VendorWorkCategory.CARPENTER
-    )
-
     suspend fun buildSummary(projectId: Long): ProjectSummary? {
         val project = db.projectDao().getById(projectId) ?: return null
         val allExpenses = db.expenseDao().getForProject(projectId)
@@ -113,30 +104,21 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
         val project = db.projectDao().getById(projectId) ?: return null
         val boqItems = db.boqDao().getForProject(projectId)
         val coefficients = db.materialCoefficientDao().getForProject(projectId)
-        val rateByMaterialName = db.materialRateCardDao().getForProject(projectId).associateBy { it.description }
         val vendors = db.vendorDao().getForProject(projectId)
         val allocations = db.costAllocationDao().getForProject(projectId)
         val actualExpense = db.expenseDao().getForProject(projectId)
             .filter { it.direction == TransactionDirection.EXPENSE }
             .sumOf { it.totalAmount }
 
-        // Civil material cost: every BOQ item's measured quantity, traced through its
+        // Civil material cost: every CIVIL BOQ item's measured quantity, traced through its
         // notation's coefficients (with waste %) to a required quantity per material, priced
-        // at that material's rate-card rate — the same tracing MaterialRepository.materialStatus()
-        // uses for stock, just multiplied by rate here instead of compared to purchases.
-        var civilMaterialCost = 0.0
-        for (boq in boqItems) {
-            val matchingCoefficients = coefficients.filter { it.workItemKey == boq.materialType && it.coefficientPerUnit > 0 }
-            for (coeff in matchingCoefficients) {
-                val required = CalculationEngine.requiredMaterialQuantity(boq.quantity, coeff.coefficientPerUnit)
-                val wastePercent = coeff.wastePercentOverride ?: boq.wastePercent
-                val totalRequired = CalculationEngine.totalRequiredQuantity(required, wastePercent)
-                val rate = rateByMaterialName[coeff.materialName]?.rate ?: 0.0
-                civilMaterialCost += totalRequired * rate
-            }
-        }
+        // at that material's rate-card rate. Non-civil BOQ items are covered by their own
+        // category's % of Budget 1 (see BudgetMath — avoids double counting).
+        val civilMaterialCost = BudgetMath.civilMaterialCostByNotation(
+            boqItems, coefficients, db.materialRateCardDao().getForProject(projectId)
+        ).values.sum()
 
-        val civilLabourCost = vendors.filter { it.workCategory in civilLabourCategories }.sumOf { it.contractValue }
+        val civilLabourCost = BudgetMath.civilLabourPool(vendors)
         val civilTotal = civilMaterialCost + civilLabourCost
 
         val otherCategoriesTotal = allocations

@@ -27,6 +27,8 @@ class AppContainer(context: Context) {
     val scheduleRepository by lazy { ScheduleRepository(db) }
     val notificationRepository by lazy { NotificationRepository(db) }
     val projectSummaryRepository by lazy { ProjectSummaryRepository(db) }
-    val sampleDataSeeder by lazy { SampleDataSeeder(db, projectRepository) }
+    val sampleDataSeeder by lazy {
+        SampleDataSeeder(db, projectRepository, builtInDefaultsSeeder, vendorRepository, expenseRepository, scheduleRepository)
+    }
     val builtInDefaultsSeeder by lazy { BuiltInDefaultsSeeder(db) }
 }
