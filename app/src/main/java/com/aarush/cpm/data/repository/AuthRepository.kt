@@ -46,7 +46,9 @@ class AuthRepository(private val db: AppDatabase) {
         return MessageDigest.isEqual(pbkdf2(password, dec.decode(parts[2]), parts[1].toInt()), expected)
     }
 
-    suspend fun register(username: String, email: String, password: String): Result<Long> {
+    /** Creates the account and returns it — callers must remember the *stored* email
+     *  (trimmed), not the raw text typed, or biometric sign-in can't find it later. */
+    suspend fun register(username: String, email: String, password: String): Result<User> {
         val cleanEmail = email.trim()
         if (!cleanEmail.contains("@")) return Result.failure(IllegalArgumentException("Enter a valid email address."))
         if (password.length < 6) return Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
@@ -54,8 +56,9 @@ class AuthRepository(private val db: AppDatabase) {
         if (existing != null) return Result.failure(IllegalStateException("An account already exists for this email."))
         if (db.userDao().findByUsernameOrEmail(username.trim()) != null)
             return Result.failure(IllegalStateException("That username is taken."))
-        val id = db.userDao().insert(User(username = username.trim(), email = cleanEmail, passwordHash = hash(password)))
-        return Result.success(id)
+        db.userDao().insert(User(username = username.trim(), email = cleanEmail, passwordHash = hash(password)))
+        return db.userDao().findByEmail(cleanEmail)?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException("Could not create the account."))
     }
 
     suspend fun login(usernameOrEmail: String, password: String, rememberMe: Boolean): Result<User> {
@@ -77,7 +80,7 @@ class AuthRepository(private val db: AppDatabase) {
      * A production build with a real backend should verify the Google ID token server-side.
      */
     suspend fun loginWithGoogle(email: String, displayName: String): Result<User> {
-        val existing = db.userDao().findByEmail(email)
+        val existing = db.userDao().findByEmail(email.trim())
         if (existing != null) return Result.success(existing)
 
         db.userDao().insert(
@@ -96,6 +99,18 @@ class AuthRepository(private val db: AppDatabase) {
 
     /** Biometric quick sign-in: BiometricPrompt has already proven device ownership. */
     suspend fun loginRemembered(email: String): Result<User> =
-        db.userDao().findByEmail(email)?.let { Result.success(it) }
-            ?: Result.failure(IllegalStateException("Remembered account no longer exists."))
+        db.userDao().findByEmail(email.trim())?.let { Result.success(it) }
+            ?: Result.failure(RememberedAccountMissing())
+
+    /** True if the remembered account is still in this device's database. */
+    suspend fun accountExists(email: String): Boolean = db.userDao().findByEmail(email.trim()) != null
+}
+
+/** The remembered email points at no account — e.g. the app data was cleared, the app was
+ *  reinstalled, or a backup without that account was restored (the remembered sign-in is
+ *  kept outside the database, so it can outlive the account). */
+class RememberedAccountMissing : IllegalStateException(
+    "This device no longer has the saved account (the app data was reset or a different backup was restored). " +
+        "Sign in with your password, or create the account again."
+) {
 }

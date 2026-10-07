@@ -51,7 +51,12 @@ class LoginViewModel(
 
     init {
         viewModelScope.launch {
-            authPreferences.rememberedEmail.collectLatest { email ->
+            authPreferences.rememberedEmail.collectLatest { stored ->
+                // Drop a remembered sign-in whose account isn't on this device any more, so the
+                // biometric button never leads to a dead end.
+                val email = stored?.trim()?.takeIf { it.isNotEmpty() }?.let { e ->
+                    if (authRepository.accountExists(e)) e else { authPreferences.clearRememberedEmail(); null }
+                }
                 _uiState.value = _uiState.value.copy(
                     rememberedEmail = email,
                     // Keep "Remember me" ticked for a remembered account, so signing in again
@@ -110,9 +115,9 @@ class LoginViewModel(
         viewModelScope.launch {
             _uiState.value = state.copy(isLoading = true, error = null)
             val result = authRepository.register(state.createUsername, state.createEmail, state.password)
-            result.onSuccess {
-                rememberOrForget(state.createEmail, state.rememberMe)
-                _uiState.value = _uiState.value.copy(isLoading = false, isCreateAccountMode = false, usernameOrEmail = state.createEmail)
+            result.onSuccess { user ->
+                rememberOrForget(user.email, state.rememberMe)
+                _uiState.value = _uiState.value.copy(isLoading = false, isCreateAccountMode = false, usernameOrEmail = user.email)
                 onSuccess()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = it.message)
@@ -151,6 +156,10 @@ class LoginViewModel(
                     _uiState.value = _uiState.value.copy(isLoading = false)
                     onSuccess()
                 }.onFailure {
+                    if (it is com.aarush.cpm.data.repository.RememberedAccountMissing) {
+                        authPreferences.clearRememberedEmail()
+                        _uiState.value = _uiState.value.copy(rememberedEmail = null, usernameOrEmail = "", rememberMe = false)
+                    }
                     _uiState.value = _uiState.value.copy(isLoading = false, error = it.message)
                 }
             }.onFailure {

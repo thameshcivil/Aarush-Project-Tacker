@@ -136,8 +136,9 @@ interface UserDao {
     suspend fun insert(user: User): Long
     @Update
     suspend fun update(user: User)
-    @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
+    /** Case-insensitive: "Asha@Mail.com" and "asha@mail.com" are the same account. */
+    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE LIMIT 1")
     suspend fun findByEmail(email: String): User?
-    @Query("SELECT * FROM users WHERE username = :username OR email = :username LIMIT 1")
+    @Query("SELECT * FROM users WHERE username = :username COLLATE NOCASE OR email = :username COLLATE NOCASE LIMIT 1")
     suspend fun findByUsernameOrEmail(username: String): User?
 }

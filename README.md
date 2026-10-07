@@ -281,6 +281,11 @@ analytics.
   from pickers are now timezone-safe.
 - Budget 2 double-counted non-civil BOQ material (e.g. tile laying) on top of that category's
   % of Budget 1.
+- "Remembered account no longer exists" on biometric sign-in: a new account was remembered
+  exactly as typed (keyboards often add a trailing space) while it was stored trimmed. The
+  stored email is now remembered, email/username lookups ignore case and spaces, and a
+  remembered sign-in whose account is gone (data reset, reinstall, other backup restored) is
+  cleared automatically instead of leaving a dead-end button.
 - Passwords are now salted PBKDF2 (old SHA-256 accounts upgrade on next login); "Remember me"
   stays ticked for a remembered account.
 - Project list totals went stale after editing a project; refreshed on return.
