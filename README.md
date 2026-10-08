@@ -190,12 +190,27 @@ for an RCC-framed house:
 
 ## Design
 
-The UI uses a "site ledger" system chosen from Inspo references for technical work tools
-(LlamaIndex, Smartsheet, Morgen): warm paper background, white sheets with 1dp hairlines
-instead of shadows, small uppercase mono labels over large tabular figures, ink-black
-rectangular primary buttons and a single safety-orange accent — with blueprint blue used
-only for *planned/baseline* against orange *actual*. Tokens and shared components live in
-`ui/theme/Theme.kt` and `ui/common/Components.kt`; light and dark themes are both defined.
+The app carries the **Aarush Construction & Consultant Works** brand. The palette is taken
+from the logo, and the direction was checked against Inspo references for warm, premium
+brands (Nordiska Museet, Louis Poulsen, Daptone):
+
+| Role | Colour | Used for |
+|---|---|---|
+| Maroon `#7A1712` | structure | primary buttons, FABs, wordmark, *planned/baseline* marks |
+| Gold `#B8862B` | accent | progress bars, active tab, brand rule (dark gold `#6E4E10` for text on gold tint) |
+| Ivory `#FAF5EC` / Sheet `#FFFDF9` | surfaces | background / cards with warm 1dp hairlines |
+| Ink `#2A1714` | text | |
+| Green / Red / Orange | status | good / bad / warning — kept distinct from both brand colours |
+
+- The logo appears on the login screen (full logo with "Makes You Comfort"), as the emblem
+  in the Projects, Settings and project headers, and in Settings → About.
+- The **launcher icon** is the logo emblem on ivory (adaptive icon, inside the safe zone).
+- A short **gold rule** under headings echoes the logo's gold swoosh.
+- Dark theme: maroon-black surfaces with bright gold.
+
+Theme tokens: `ui/theme/Theme.kt`. Brand components (`AarushLogo`, `AarushMark`,
+`BrandHeader`, `BrandRule`): `ui/common/Components.kt`. Logo files:
+`res/drawable-nodpi/aarush_logo*.png`, launcher: `res/mipmap-*/ic_launcher*`.
 
 ## Database
 
@@ -238,7 +253,7 @@ analytics.
 
 ## Changelog
 
-**1.1.0 — schedule, bug fixes, new design**
+**1.1.0 — schedule, bug fixes, Aarush brand theme**
 
 *New*
 - Construction schedule & tracking tab (see above), driven by the BOQ and budget.
