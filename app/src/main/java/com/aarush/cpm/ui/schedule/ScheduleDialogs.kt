@@ -240,7 +240,7 @@ internal fun ActivityDetailSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StatusPill(t.status.name.replace('_', ' '), fg, bg)
                 if (t.isCritical && t.status != ActivityStatus.COMPLETED) StatusPill("Critical path", SiteTheme.colors.bad, SiteTheme.colors.badTint)
-                if (a.isMilestone) StatusPill("Milestone", SiteTheme.colors.accent, SiteTheme.colors.accentTint)
+                if (a.isMilestone) StatusPill("Milestone", SiteTheme.colors.accentText, SiteTheme.colors.accentTint)
             }
             Spacer(Modifier.height(12.dp))
             ProgressRail((t.actualPercent / 100).toFloat(), plannedMarker = (t.plannedPercent / 100).toFloat(), height = 8.dp,

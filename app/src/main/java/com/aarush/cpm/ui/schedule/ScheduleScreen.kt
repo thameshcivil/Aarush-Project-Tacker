@@ -525,7 +525,7 @@ internal fun round1(v: Double) = kotlin.math.round(v * 10) / 10.0
 internal fun statusColors(status: ActivityStatus) = when (status) {
     ActivityStatus.COMPLETED -> SiteTheme.colors.good to SiteTheme.colors.goodTint
     ActivityStatus.DELAYED -> SiteTheme.colors.bad to SiteTheme.colors.badTint
-    ActivityStatus.IN_PROGRESS -> SiteTheme.colors.accent to SiteTheme.colors.accentTint
+    ActivityStatus.IN_PROGRESS -> SiteTheme.colors.accentText to SiteTheme.colors.accentTint
     ActivityStatus.NOT_STARTED -> SiteTheme.colors.muted to SiteTheme.colors.hairline
 }
 

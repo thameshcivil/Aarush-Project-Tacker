@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Aarush brand: ivory paper, maroon, gold (from the logo) -->
+    <color name="ic_launcher_background">#FAF5EC</color>
+    <color name="aarush_ivory">#FAF5EC</color>
+    <color name="aarush_maroon">#7A1712</color>
+</resources>

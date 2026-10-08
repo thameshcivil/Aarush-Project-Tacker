@@ -67,9 +67,13 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
         topBar = {
             TopAppBar(
                 title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.aarush.cpm.ui.common.AarushMark(Modifier.height(24.dp))
+                    Spacer(Modifier.width(10.dp))
                     Column {
                         SectionLabel(projectName.ifBlank { "Project" })
                         Text(selectedTab.label, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     }
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aarush.cpm.ui.theme.FigureStyle
 import com.aarush.cpm.ui.theme.LabelMono
 import com.aarush.cpm.ui.theme.SiteTheme
@@ -144,4 +145,47 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier, actio
 @Composable
 fun StatRow(content: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
+
+// ------------------------------------------------------------------ brand
+
+/** The full Aarush logo (emblem, wordmark, tagline). */
+@Composable
+fun AarushLogo(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(com.aarush.cpm.R.drawable.aarush_logo),
+        contentDescription = "Aarush Construction & Consultant Works",
+        modifier = modifier
+    )
+}
+
+/** Just the emblem (the "A", towers, house and gold swoosh) — for headers. */
+@Composable
+fun AarushMark(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(com.aarush.cpm.R.drawable.aarush_logo_mark),
+        contentDescription = null,
+        modifier = modifier
+    )
+}
+
+/** Short gold rule — the brand's signature mark under headings (from the logo's gold swoosh). */
+@Composable
+fun BrandRule(modifier: Modifier = Modifier, width: Dp = 32.dp) {
+    Box(modifier.width(width).height(3.dp).clip(RoundedCornerShape(2.dp)).background(SiteTheme.colors.gold))
+}
+
+/** Screen header: emblem + small "AARUSH" wordmark + page title + gold rule. */
+@Composable
+fun BrandHeader(title: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        AarushMark(Modifier.height(34.dp))
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text("AARUSH", style = com.aarush.cpm.ui.theme.WordmarkStyle.copy(fontSize = 13.sp),
+                color = SiteTheme.colors.maroon)
+            Text(title, style = MaterialTheme.typography.headlineMedium)
+            BrandRule(Modifier.padding(top = 4.dp))
+        }
+    }
 }

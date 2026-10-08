@@ -117,7 +117,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
     }
 
     Scaffold(topBar = {
-        LargeTopAppBar(title = { Column { SectionLabel("Aarush CPM"); Text("Settings", style = MaterialTheme.typography.headlineMedium) } })
+        LargeTopAppBar(title = { com.aarush.cpm.ui.common.BrandHeader("Settings") })
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             viewModel.statusMessage?.let {
@@ -206,7 +206,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
 
             Spacer(Modifier.height(20.dp))
             SectionLabel("About")
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
+            com.aarush.cpm.ui.common.AarushLogo(Modifier.width(180.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("Aarush Construction & Consultant Works", style = MaterialTheme.typography.titleSmall)
             Text("Aarush Construction Project Management System — v1.1.0", style = MaterialTheme.typography.bodySmall)
             Text("Offline-first. All data stored locally on this device.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(32.dp))

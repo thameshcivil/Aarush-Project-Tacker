@@ -102,12 +102,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             LargeTopAppBar(
-                title = {
-                    Column {
-                        SectionLabel("Aarush CPM")
-                        Text("Projects", style = MaterialTheme.typography.headlineMedium)
-                    }
-                }
+                title = { BrandHeader("Projects") }
             )
         },
         floatingActionButton = {
@@ -196,7 +191,7 @@ fun DashboardScreen(
 private fun statusColors(status: ProjectStatus) = when (status) {
     ProjectStatus.COMPLETED -> SiteTheme.colors.good to SiteTheme.colors.goodTint
     ProjectStatus.ON_HOLD -> SiteTheme.colors.bad to SiteTheme.colors.badTint
-    ProjectStatus.IN_PROGRESS, ProjectStatus.STARTED -> SiteTheme.colors.accent to SiteTheme.colors.accentTint
+    ProjectStatus.IN_PROGRESS, ProjectStatus.STARTED -> SiteTheme.colors.accentText to SiteTheme.colors.accentTint
     ProjectStatus.PLANNING -> SiteTheme.colors.planned to SiteTheme.colors.plannedTint
 }
 

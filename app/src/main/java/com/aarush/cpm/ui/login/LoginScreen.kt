@@ -187,15 +187,14 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            Modifier.size(56.dp).background(com.aarush.cpm.ui.theme.SiteTheme.colors.accent, androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) { Icon(Icons.Filled.Construction, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(32.dp)) }
-        Spacer(Modifier.height(16.dp))
-        Text("Aarush Construction", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(4.dp))
-        com.aarush.cpm.ui.common.SectionLabel("Project management · site ledger")
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(12.dp))
+        // Full company logo — emblem, wordmark and "Makes You Comfort" tagline.
+        com.aarush.cpm.ui.common.AarushLogo(Modifier.fillMaxWidth(0.78f).widthIn(max = 320.dp))
+        Spacer(Modifier.height(14.dp))
+        com.aarush.cpm.ui.common.BrandRule(width = 40.dp)
+        Spacer(Modifier.height(10.dp))
+        com.aarush.cpm.ui.common.SectionLabel("Project management")
+        Spacer(Modifier.height(28.dp))
 
         if (!state.isCreateAccountMode) {
             if (state.rememberedEmail != null && biometricAvailable && activity != null) {

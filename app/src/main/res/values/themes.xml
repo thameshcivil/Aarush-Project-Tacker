@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.AarushCPM" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Ivory window background so app launch doesn't flash white before Compose draws. -->
+    <style name="Theme.AarushCPM" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/aarush_ivory</item>
+        <item name="android:colorAccent">@color/aarush_maroon</item>
+    </style>
 </resources>
