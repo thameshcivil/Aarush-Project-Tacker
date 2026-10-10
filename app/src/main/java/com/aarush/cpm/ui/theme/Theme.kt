@@ -218,7 +218,9 @@ fun AarushCPMTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composa
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            // Safe cast: in the app this is always the Activity; preview / screenshot renderers
+            // host the view elsewhere, and there is no status bar to tint there.
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
         }
