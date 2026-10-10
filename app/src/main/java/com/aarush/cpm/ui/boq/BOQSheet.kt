@@ -206,7 +206,12 @@ private fun GroupByToggle(mode: BOQSortMode, onMode: (BOQSortMode) -> Unit) {
                 SegmentedButton(
                     selected = mode == m,
                     onClick = { onMode(m) },
-                    shape = SegmentedButtonDefaults.itemShape(index = i, count = modes.size, baseShape = MaterialTheme.shapes.small)
+                    shape = SegmentedButtonDefaults.itemShape(index = i, count = modes.size, baseShape = MaterialTheme.shapes.small),
+                    // Selected = maroon tint (primary action colour); gold is reserved for "actual".
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 ) { Text(m.label, maxLines = 1) }
             }
         }

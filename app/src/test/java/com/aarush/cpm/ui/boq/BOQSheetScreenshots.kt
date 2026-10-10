@@ -66,7 +66,7 @@ class BOQSheetNarrowScreenshots {
         paparazzi.snapshot { Sheet(false, rccAndBrick, BOQSortMode.NOTATIONS, rccOpen, rccSubsOpen, copied = true) }
 }
 
-/** 360dp: the most common Android width; also on the narrow layout (threshold ~355dp of sheet width). */
+/** 360dp: the most common Android width. Still wide enough (>= 355dp) for the one-line table. */
 class BOQSheet360Screenshots {
     @get:Rule
     val paparazzi = Paparazzi(deviceConfig = phone(360), theme = "android:Theme.Material.Light.NoActionBar")
