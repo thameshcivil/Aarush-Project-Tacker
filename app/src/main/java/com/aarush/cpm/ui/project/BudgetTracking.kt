@@ -96,12 +96,15 @@ internal fun LedgerRow(
     caption: String? = null,
     valueColor: Color = Color.Unspecified,
     emphasize: Boolean = false,
-    divider: Boolean = true
+    divider: Boolean = true,
+    /** Optional small key drawn before the label (e.g. the chart colour this figure uses). */
+    leading: (@Composable () -> Unit)? = null
 ) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 8.dp).semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
+        leading?.let { it(); Spacer(Modifier.width(10.dp)) }
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(label, style = if (emphasize) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium)
             caption?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted) }

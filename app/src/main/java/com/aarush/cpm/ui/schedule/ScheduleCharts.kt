@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +22,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -34,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import com.aarush.cpm.data.entity.ActivityStatus
 import com.aarush.cpm.data.repository.ScheduleReport
 import com.aarush.cpm.domain.schedule.SCurvePoint
+import com.aarush.cpm.ui.common.formatPercent
+import com.aarush.cpm.ui.common.formatShortDate
 import com.aarush.cpm.ui.theme.SiteTheme
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -42,11 +48,17 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /**
- * Gantt chart drawn on one Canvas (fast for 100+ activities). Each row shows the baseline as
- * a thin blueprint line and the forecast as a bar — the done share solid orange, the rest
- * tinted; delayed activities in red; milestones as diamonds; a vertical line marks today.
- * The activity-name column and the month header stay pinned while scrolling.
- * Tap a row to open the activity.
+ * Gantt chart drawn on one Canvas (fast for 100+ activities). Redesign Phase 4 colour rules:
+ *  - Planned (baseline) dates: dark-neutral OUTLINE bar in the upper lane of each row, so it
+ *    stays visible whatever the forecast bar below looks like. Critical activities get a
+ *    heavier outline (and a heavy neutral mark in the name column).
+ *  - Forecast bar in the lower lane: the done share solid GOLD, the remainder light gold;
+ *    DELAYED activities show the remainder in red with a red edge (done share stays gold).
+ *  - Today: a solid dark line across the chart, labelled in the header.
+ *  - Milestones: diamonds (gold when reached, red when delayed, otherwise outlined).
+ * The name column (floor code + name, then dates and %) and the month header stay pinned while
+ * scrolling. On narrow phones the name column takes ~46% of the width instead of a fixed 172dp.
+ * Tap a row to open the activity. Display only: all dates and percentages come from tracking.
  */
 @Composable
 fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> Unit, modifier: Modifier = Modifier) {
@@ -61,138 +73,181 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
     val start = (listOfNotNull(report.baselineStart) + acts.map { it.tracking.forecastStart }).min().minusDays(3)
     val end = (listOfNotNull(report.baselineFinish, report.forecastFinish) + acts.map { it.tracking.forecastFinish }).max().plusDays(10)
     val days = ChronoUnit.DAYS.between(start, end).toInt() + 1
+    val delayedCount = acts.count { it.tracking.status == ActivityStatus.DELAYED }
 
-    // Wider than before so a floor code plus the activity name fit (e.g. "1F  Beams & roof slab").
-    val labelW = 172.dp
-    val rowH = 30.dp
-    val headerH = 36.dp
-    val dayW = dayWidthDp.dp
-    val totalW = labelW + dayW * days
-    val totalH = headerH + rowH * acts.size
+    BoxWithConstraints(modifier.semantics {
+        contentDescription = "Gantt chart, ${acts.size} activities, $delayedCount delayed. Tap a row to open the activity."
+    }) {
+        val labelW = minOf(180.dp, maxWidth * 0.46f)
+        val rowH = 44.dp
+        val headerH = 36.dp
+        val dayW = dayWidthDp.dp
+        val totalW = labelW + dayW * days
+        val totalH = headerH + rowH * acts.size
 
-    val labelWpx = with(density) { labelW.toPx() }
-    val nameStyle = TextStyle(fontSize = 11.sp, color = ink)
-    val smallStyle = TextStyle(fontSize = 10.sp, color = colors.muted)
-    // Floor code in bold ink (maroon is reserved for brand and primary actions).
-    val floorStyle = SpanStyle(color = ink, fontWeight = FontWeight.Bold)
-    val names = remember(acts, ink, floorStyle) {
-        acts.map {
-            // Floor code first (bold, brand maroon) so rows for different floors are told apart
-            // even when the end of a long name is cut off; then the activity name without the
-            // repeated " — <floor>" suffix. Display only — stored names are unchanged.
-            val code = floorCode(it.activity.floorLabel)
-            val label = buildAnnotatedString {
-                if (code.isNotEmpty()) { withStyle(floorStyle) { append(code) }; append("  ") }
-                append(activityBaseName(it.activity.activityName, it.activity.floorLabel))
+        val labelWpx = with(density) { labelW.toPx() }
+        val nameStyle = TextStyle(fontSize = 12.sp, color = ink)
+        val metaStyle = TextStyle(fontSize = 10.5.sp, color = colors.muted)
+        val lateStyle = SpanStyle(color = colors.bad, fontWeight = FontWeight.SemiBold)
+        val smallStyle = TextStyle(fontSize = 10.sp, color = colors.muted)
+        val todayStyle = TextStyle(fontSize = 10.sp, color = sheet, fontWeight = FontWeight.Bold)
+        // Floor code in bold ink (maroon is reserved for brand and primary actions).
+        val floorStyle = SpanStyle(color = ink, fontWeight = FontWeight.Bold)
+        val textMax = (labelWpx - with(density) { 20.dp.toPx() }).toInt().coerceAtLeast(1)
+        val names = remember(acts, ink, labelWpx) {
+            acts.map {
+                // Floor code first so rows for different floors are told apart even when the
+                // end of a long name is cut off; the repeated " — <floor>" suffix is dropped
+                // (display only — stored names are unchanged).
+                val code = floorCode(it.activity.floorLabel)
+                val label = buildAnnotatedString {
+                    if (code.isNotEmpty()) { withStyle(floorStyle) { append(code) }; append("  ") }
+                    append(activityBaseName(it.activity.activityName, it.activity.floorLabel))
+                }
+                measurer.measure(label, nameStyle, overflow = TextOverflow.Ellipsis, maxLines = 1, constraints = Constraints(maxWidth = textMax))
             }
-            measurer.measure(
-                label, nameStyle, overflow = TextOverflow.Ellipsis, maxLines = 1,
-                constraints = Constraints(maxWidth = (labelWpx - with(density) { 18.dp.toPx() }).toInt().coerceAtLeast(1))
-            )
         }
-    }
-    val monthFmt = remember { DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()) }
-    val dayFmt = remember { DateTimeFormatter.ofPattern("d", Locale.getDefault()) }
-    val h = rememberScrollState()
-    val v = rememberScrollState()
-
-    Box(modifier.verticalScroll(v).horizontalScroll(h)) {
-        Canvas(
-            Modifier.size(totalW, totalH).pointerInput(acts) {
-                detectTapGestures { pos ->
-                    val row = ((pos.y - headerH.toPx()) / rowH.toPx()).toInt()
-                    if (pos.y > headerH.toPx() && row in acts.indices) onRowClick(acts[row].activity.id)
+        val metas = remember(acts, labelWpx) {
+            acts.map {
+                val t = it.tracking
+                val meta = buildAnnotatedString {
+                    append("${formatShortDate(t.forecastStart)} → ${formatShortDate(t.forecastFinish)}, ${formatPercent(t.actualPercent)}")
+                    if (t.delayDays > 0) withStyle(lateStyle) { append("  +${t.delayDays}d") }
                 }
+                measurer.measure(meta, metaStyle, overflow = TextOverflow.Ellipsis, maxLines = 1, constraints = Constraints(maxWidth = textMax))
             }
-        ) {
-            val dw = dayW.toPx(); val rh = rowH.toPx(); val hh = headerH.toPx()
-            fun xOf(d: LocalDate) = labelWpx + ChronoUnit.DAYS.between(start, d) * dw
-            val scrollX = h.value.toFloat()
-            val scrollY = v.value.toFloat()
+        }
+        val monthFmt = remember { DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()) }
+        val dayFmt = remember { DateTimeFormatter.ofPattern("d", Locale.getDefault()) }
+        // Open scrolled so "today" is in view (a week of context to its left) instead of at
+        // the schedule's first day, which on a phone is usually months away.
+        val todayStartPx = with(density) {
+            (ChronoUnit.DAYS.between(start, report.today) - 7).coerceAtLeast(0) * dayW.toPx()
+        }.toInt()
+        val h = remember(dayWidthDp) { ScrollState(todayStartPx) }
+        val v = rememberScrollState()
 
-            // Week grid (Mondays) and Sunday shading.
-            var d = start
-            while (!d.isAfter(end)) {
-                if (d.dayOfWeek == DayOfWeek.SUNDAY && report.sundayOff) {
-                    drawRect(colors.hairline.copy(alpha = 0.35f), topLeft = Offset(xOf(d), hh), size = Size(dw, size.height - hh))
-                }
-                if (d.dayOfWeek == DayOfWeek.MONDAY) {
-                    drawLine(colors.hairline, Offset(xOf(d), hh), Offset(xOf(d), size.height), strokeWidth = 1f)
-                }
-                d = d.plusDays(1)
-            }
-
-            // Rows
-            acts.forEachIndexed { i, view ->
-                val y = hh + i * rh
-                val t = view.tracking
-                drawLine(colors.hairline.copy(alpha = 0.6f), Offset(labelWpx, y + rh), Offset(size.width, y + rh), strokeWidth = 1f)
-                // baseline
-                val bx1 = xOf(t.baselineStart); val bx2 = xOf(t.baselineFinish) + dw
-                drawRoundRect(colors.planned, Offset(bx1, y + rh * 0.18f), Size((bx2 - bx1).coerceAtLeast(2f), rh * 0.12f), CornerRadius(2f))
-                // forecast
-                val fx1 = xOf(t.forecastStart); val fx2 = xOf(t.forecastFinish) + dw
-                val barTop = y + rh * 0.40f; val barH = rh * 0.38f
-                val base = if (t.status == ActivityStatus.DELAYED) colors.bad else colors.accent
-                if (view.activity.isMilestone) {
-                    val cx = fx2 - dw / 2; val cy = barTop + barH / 2; val r = barH * 0.75f
-                    val path = Path().apply { moveTo(cx, cy - r); lineTo(cx + r, cy); lineTo(cx, cy + r); lineTo(cx - r, cy); close() }
-                    drawPath(path, if (t.actualPercent >= 100) colors.good else base)
-                } else {
-                    val w = (fx2 - fx1).coerceAtLeast(2f)
-                    drawRoundRect(base.copy(alpha = 0.28f), Offset(fx1, barTop), Size(w, barH), CornerRadius(3f))
-                    val doneW = w * (t.actualPercent / 100.0).toFloat()
-                    if (doneW > 0) drawRoundRect(if (t.actualPercent >= 100) colors.good else base, Offset(fx1, barTop), Size(doneW, barH), CornerRadius(3f))
-                    if (t.isCritical && t.status != ActivityStatus.COMPLETED) {
-                        drawRoundRect(colors.bad, Offset(fx1, barTop), Size(w, barH), CornerRadius(3f), style = Stroke(width = 1.5f))
+        Box(Modifier.verticalScroll(v).horizontalScroll(h)) {
+            Canvas(
+                Modifier.size(totalW, totalH).pointerInput(acts) {
+                    detectTapGestures { pos ->
+                        val row = ((pos.y - headerH.toPx()) / rowH.toPx()).toInt()
+                        if (pos.y > headerH.toPx() && row in acts.indices) onRowClick(acts[row].activity.id)
                     }
                 }
-            }
+            ) {
+                val dw = dayW.toPx(); val rh = rowH.toPx(); val hh = headerH.toPx()
+                fun xOf(d: LocalDate) = labelWpx + ChronoUnit.DAYS.between(start, d) * dw
+                val scrollX = h.value.toFloat()
+                val scrollY = v.value.toFloat()
+                val thin = 1.5.dp.toPx(); val heavy = 2.5.dp.toPx()
 
-            // Today
-            val tx = xOf(report.today) + dw / 2
-            drawLine(colors.accent, Offset(tx, hh), Offset(tx, size.height), strokeWidth = 2f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)))
-
-            // Pinned name column
-            drawRect(sheet, topLeft = Offset(scrollX, hh), size = Size(labelWpx, size.height - hh))
-            drawLine(colors.hairline, Offset(scrollX + labelWpx, hh), Offset(scrollX + labelWpx, size.height), strokeWidth = 1f)
-            acts.forEachIndexed { i, view ->
-                val y = hh + i * rh
-                val layout = names[i]
-                if (view.tracking.isCritical && view.tracking.status != ActivityStatus.COMPLETED) {
-                    drawCircle(colors.bad, radius = 3.dp.toPx(), center = Offset(scrollX + 7.dp.toPx(), y + rh / 2))
-                }
-                drawText(layout, topLeft = Offset(scrollX + 14.dp.toPx(), y + (rh - layout.size.height) / 2))
-            }
-
-            // Pinned month header
-            drawRect(sheet, topLeft = Offset(scrollX, scrollY), size = Size(size.width - scrollX, hh))
-            drawLine(colors.hairline, Offset(scrollX, scrollY + hh), Offset(size.width, scrollY + hh), strokeWidth = 1f)
-            var m = start.withDayOfMonth(1)
-            while (!m.isAfter(end)) {
-                val x = xOf(maxOf(m, start))
-                if (x + 40 > scrollX + labelWpx) {
-                    drawText(measurer, m.format(monthFmt).uppercase(), Offset(maxOf(x + 4, scrollX + labelWpx + 4), scrollY + 4.dp.toPx()), smallStyle)
-                }
-                drawLine(colors.hairline, Offset(x, scrollY), Offset(x, scrollY + hh), strokeWidth = 1f)
-                m = m.plusMonths(1)
-            }
-            if (dw >= 10.dp.toPx() * 0.7f) {
-                var wd = start
-                while (!wd.isAfter(end)) {
-                    if (wd.dayOfWeek == DayOfWeek.MONDAY && xOf(wd) > scrollX + labelWpx) {
-                        drawText(measurer, wd.format(dayFmt), Offset(xOf(wd) + 2, scrollY + hh - 15.dp.toPx()), smallStyle)
+                // Week grid (Mondays) and Sunday shading.
+                var d = start
+                while (!d.isAfter(end)) {
+                    if (d.dayOfWeek == DayOfWeek.SUNDAY && report.sundayOff) {
+                        drawRect(colors.hairline.copy(alpha = 0.35f), topLeft = Offset(xOf(d), hh), size = Size(dw, size.height - hh))
                     }
-                    wd = wd.plusDays(1)
+                    if (d.dayOfWeek == DayOfWeek.MONDAY) {
+                        drawLine(colors.hairline, Offset(xOf(d), hh), Offset(xOf(d), size.height), strokeWidth = 1f)
+                    }
+                    d = d.plusDays(1)
                 }
+
+                // Rows
+                acts.forEachIndexed { i, view ->
+                    val y = hh + i * rh
+                    val t = view.tracking
+                    val delayed = t.status == ActivityStatus.DELAYED
+                    val critical = t.isCritical && t.status != ActivityStatus.COMPLETED
+                    drawLine(colors.hairline.copy(alpha = 0.6f), Offset(labelWpx, y + rh), Offset(size.width, y + rh), strokeWidth = 1f)
+
+                    // Planned (baseline): neutral outline, upper lane.
+                    val bx1 = xOf(t.baselineStart); val bx2 = xOf(t.baselineFinish) + dw
+                    val pTop = y + rh * 0.16f; val pH = rh * 0.22f
+                    drawRoundRect(colors.planned, Offset(bx1, pTop), Size((bx2 - bx1).coerceAtLeast(2f), pH), CornerRadius(2f),
+                        style = Stroke(width = if (critical) heavy else thin))
+
+                    // Forecast / actual: lower lane.
+                    val fx1 = xOf(t.forecastStart); val fx2 = xOf(t.forecastFinish) + dw
+                    val barTop = y + rh * 0.50f; val barH = rh * 0.30f
+                    if (view.activity.isMilestone) {
+                        val cx = fx2 - dw / 2; val cy = barTop + barH / 2; val r = barH * 0.8f
+                        val path = Path().apply { moveTo(cx, cy - r); lineTo(cx + r, cy); lineTo(cx, cy + r); lineTo(cx - r, cy); close() }
+                        when {
+                            t.actualPercent >= 100 -> drawPath(path, colors.accent)
+                            delayed -> drawPath(path, colors.bad)
+                            else -> drawPath(path, colors.planned, style = Stroke(width = thin))
+                        }
+                    } else {
+                        val w = (fx2 - fx1).coerceAtLeast(2f)
+                        val rest = if (delayed) colors.bad.copy(alpha = 0.35f) else colors.accent.copy(alpha = 0.30f)
+                        drawRoundRect(rest, Offset(fx1, barTop), Size(w, barH), CornerRadius(3f))
+                        val doneW = w * (t.actualPercent / 100.0).toFloat().coerceIn(0f, 1f)
+                        if (doneW > 0) drawRoundRect(colors.accent, Offset(fx1, barTop), Size(doneW, barH), CornerRadius(3f))
+                        if (delayed) drawRoundRect(colors.bad, Offset(fx1, barTop), Size(w, barH), CornerRadius(3f), style = Stroke(width = thin))
+                    }
+                }
+
+                // Today: solid dark line, labelled in the header below.
+                val tx = xOf(report.today) + dw / 2
+                drawLine(ink, Offset(tx, hh), Offset(tx, size.height), strokeWidth = 2.dp.toPx())
+
+                // Pinned name column
+                drawRect(sheet, topLeft = Offset(scrollX, hh), size = Size(labelWpx, size.height - hh))
+                drawLine(colors.hairline, Offset(scrollX + labelWpx, hh), Offset(scrollX + labelWpx, size.height), strokeWidth = 1f)
+                acts.forEachIndexed { i, view ->
+                    val y = hh + i * rh
+                    if (i > 0) drawLine(colors.hairline.copy(alpha = 0.6f), Offset(scrollX, y), Offset(scrollX + labelWpx, y), strokeWidth = 1f)
+                    if (view.tracking.isCritical && view.tracking.status != ActivityStatus.COMPLETED) {
+                        drawRect(colors.planned, topLeft = Offset(scrollX, y + rh * 0.2f), size = Size(3.dp.toPx(), rh * 0.6f))
+                    }
+                    val name = names[i]; val meta = metas[i]
+                    val blockH = name.size.height + meta.size.height
+                    val top = y + (rh - blockH) / 2
+                    drawText(name, topLeft = Offset(scrollX + 10.dp.toPx(), top))
+                    drawText(meta, topLeft = Offset(scrollX + 10.dp.toPx(), top + name.size.height))
+                }
+
+                // Pinned month header
+                drawRect(sheet, topLeft = Offset(scrollX, scrollY), size = Size(size.width - scrollX, hh))
+                drawLine(colors.hairline, Offset(scrollX, scrollY + hh), Offset(size.width, scrollY + hh), strokeWidth = 1f)
+                var m = start.withDayOfMonth(1)
+                while (!m.isAfter(end)) {
+                    val x = xOf(maxOf(m, start))
+                    if (x + 40 > scrollX + labelWpx) {
+                        drawText(measurer, m.format(monthFmt), Offset(maxOf(x + 4, scrollX + labelWpx + 4), scrollY + 4.dp.toPx()), smallStyle)
+                    }
+                    drawLine(colors.hairline, Offset(x, scrollY), Offset(x, scrollY + hh), strokeWidth = 1f)
+                    m = m.plusMonths(1)
+                }
+                if (dw >= 10.dp.toPx() * 0.7f) {
+                    var wd = start
+                    while (!wd.isAfter(end)) {
+                        if (wd.dayOfWeek == DayOfWeek.MONDAY && xOf(wd) > scrollX + labelWpx) {
+                            drawText(measurer, wd.format(dayFmt), Offset(xOf(wd) + 2, scrollY + hh - 15.dp.toPx()), smallStyle)
+                        }
+                        wd = wd.plusDays(1)
+                    }
+                }
+                // "Today" tag on the header, where the line is.
+                if (tx > scrollX + labelWpx) {
+                    val tag = measurer.measure("Today", todayStyle)
+                    val pad = 4.dp.toPx()
+                    val tagW = tag.size.width + pad * 2; val tagH = tag.size.height + pad
+                    val tagX = (tx - tagW / 2).coerceAtLeast(scrollX + labelWpx + 2)
+                    val tagY = scrollY + hh - tagH - 2.dp.toPx()
+                    drawRoundRect(ink, Offset(tagX, tagY), Size(tagW, tagH), CornerRadius(4.dp.toPx()))
+                    drawText(tag, topLeft = Offset(tagX + pad, tagY + pad / 2))
+                    drawLine(ink, Offset(tx, tagY + tagH), Offset(tx, scrollY + hh), strokeWidth = 2.dp.toPx())
+                }
+                drawText(measurer, "Activity", Offset(scrollX + 10.dp.toPx(), scrollY + 4.dp.toPx()), smallStyle)
             }
-            drawText(measurer, "ACTIVITY", Offset(scrollX + 14.dp.toPx(), scrollY + 4.dp.toPx()), smallStyle)
         }
     }
 }
 
-/** Cumulative planned (blueprint) vs actual (orange) % complete, weekly. */
+/** Cumulative planned (dark neutral) vs actual (gold) % complete, weekly; dashed line = today. */
 @Composable
 fun SCurveChart(points: List<SCurvePoint>, today: LocalDate, modifier: Modifier = Modifier) {
     if (points.size < 2) {
