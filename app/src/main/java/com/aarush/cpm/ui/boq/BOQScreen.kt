@@ -43,9 +43,15 @@ import com.aarush.cpm.ui.common.AppCard
 import com.aarush.cpm.ui.common.EmptyState
 import com.aarush.cpm.ui.common.SectionLabel
 import com.aarush.cpm.ui.common.ColumnLabel
+import com.aarush.cpm.ui.common.ErrorBanner
+import com.aarush.cpm.ui.common.ErrorState
+import com.aarush.cpm.ui.common.SkeletonScreen
 import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -84,6 +90,14 @@ class BOQViewModel(
     private val projectRepository: ProjectRepository
 ) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
+    /** Bumped by [retry] so the same project's flows are re-subscribed. */
+    private val retryTick = MutableStateFlow(0)
+    private val _loaded = MutableStateFlow(false)
+    /** False until the first list of entries has arrived: the screen shows a skeleton, not
+     *  a premature "No BOQ measurements yet". */
+    val loaded: StateFlow<Boolean> = _loaded
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError
 
     /** Floor/location tags offered on the form — built from the project's floor count. */
     val floorOptions: StateFlow<List<String>> = projectIdFlow
@@ -91,8 +105,16 @@ class BOQViewModel(
         .map { p -> ResidentialScheduleTemplate.floorOptions(p?.numberOfFloors ?: 1) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ResidentialScheduleTemplate.floorOptions(1))
 
-    val items: StateFlow<List<BOQItem>> = projectIdFlow
-        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repository.observeForProject(id) }
+    val items: StateFlow<List<BOQItem>> = combine(projectIdFlow, retryTick) { id, _ -> id }
+        .flatMapLatest { id ->
+            if (id == null) flowOf(emptyList())
+            else repository.observeForProject(id)
+                .onEach { _loaded.value = true; _loadError.value = null }
+                .catch { e ->
+                    _loadError.value = "Couldn't read the BOQ. ${e.message ?: ""}".trim()
+                    emit(emptyList())
+                }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val notations: StateFlow<List<BOQNotation>> = projectIdFlow
@@ -106,7 +128,14 @@ class BOQViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun init(projectId: Long) {
+        if (projectIdFlow.value != projectId) _loaded.value = false
         projectIdFlow.value = projectId
+    }
+
+    /** Re-reads the BOQ after a failed load. */
+    fun retry() {
+        _loadError.value = null
+        retryTick.value += 1
     }
 
     fun addItem(input: BOQItemInput) {
@@ -150,8 +179,6 @@ class BOQViewModel(
     }
 }
 
-private enum class BOQSortMode(val label: String) { NOTATIONS("Notations"), DESCRIPTION("Description") }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: SnackbarHostState) {
@@ -172,118 +199,33 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     var expandedSub by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
 
-    fun mainKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.itemCode else item.description.ifBlank { item.itemCode }
-    fun subKeyOf(item: BOQItem): String = if (sortMode == BOQSortMode.NOTATIONS) item.description.ifBlank { item.itemCode } else item.itemCode
+    val loaded by viewModel.loaded.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
 
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Sort by:", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BOQSortMode.values().forEach { mode ->
-                        FilterChip(selected = sortMode == mode, onClick = { sortMode = mode }, label = { Text(mode.label) })
-                    }
-                }
-            }
-
-            copiedItem?.let { copied ->
-                AppCard(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    colors = CardDefaults.outlinedCardColors(containerColor = SiteTheme.colors.accentTint)
-                ) {
-                    Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Copied measurements", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${copied.itemCode}:  M ${formatQuantity(copied.numberOfMembers, "")}   L ${copied.length}   B ${copied.breadth}   D ${copied.depth}",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        TextButton(onClick = { showAddDialog = true }) { Text("Paste") }
-                        IconButton(onClick = { copiedItem = null }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear copied measurements", modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-            }
-
-            if (boqItems.isEmpty()) {
-                EmptyState(
-                    "No BOQ measurements yet",
-                    "Tap + to measure work by notation (excavation, PCC, RCC, brickwork…). Tag each entry with its floor so the schedule gets exact quantities per floor."
-                )
-            } else {
-                val mainGrouped = boqItems.groupBy { mainKeyOf(it) }.toSortedMap()
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    mainGrouped.forEach { (mainKey, mainItems) ->
-                        val mainExpanded = expandedMain.contains(mainKey)
-                        item(key = "main-$mainKey") {
-                            AppCard(
-                                onClick = { expandedMain = if (mainExpanded) expandedMain - mainKey else expandedMain + mainKey },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(mainKey, style = MaterialTheme.typography.titleSmall)
-                                        SectionLabel("${mainItems.size} entr${if (mainItems.size == 1) "y" else "ies"} · ${quantityTotals(mainItems)}")
-                                        Text(materialSummary(mainItems, coefficients), style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
-                                    }
-                                    if (mainExpanded) {
-                                        IconButton(onClick = { copiedItem = mainItems.first() }) {
-                                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements from this group", modifier = Modifier.size(20.dp))
-                                        }
-                                    }
-                                    Icon(if (mainExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (mainExpanded) "Collapse" else "Expand")
-                                }
-                            }
-                        }
-                        if (mainExpanded) {
-                            val subGrouped = mainItems.groupBy { subKeyOf(it) }.toSortedMap()
-                            subGrouped.forEach { (subKey, subItems) ->
-                                val subFullKey = "$mainKey|$subKey"
-                                val subExpanded = expandedSub.contains(subFullKey)
-                                item(key = "sub-$subFullKey") {
-                                    AppCard(
-                                        onClick = { expandedSub = if (subExpanded) expandedSub - subFullKey else expandedSub + subFullKey },
-                                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
-                                    ) {
-                                        Row(Modifier.padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(1f)) {
-                                                Text(subKey, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                Text("${quantityTotals(subItems)} · ${materialSummary(subItems, coefficients)}", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
-                                            }
-                                            if (subExpanded) {
-                                                IconButton(onClick = { copiedItem = subItems.first() }) {
-                                                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements from this group", modifier = Modifier.size(20.dp))
-                                                }
-                                            }
-                                            Icon(if (subExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (subExpanded) "Collapse" else "Expand", modifier = Modifier.size(20.dp))
-                                        }
-                                    }
-                                }
-                                if (subExpanded) {
-                                    items(subItems, key = { it.id }) { boqItem ->
-                                        BOQItemCompactRow(
-                                            item = boqItem,
-                                            onEdit = { editingItem = boqItem },
-                                            onCopy = { copiedItem = boqItem },
-                                            onDelete = { pendingDelete = boqItem }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item { Spacer(Modifier.height(72.dp)) }
-                }
-            }
+    when {
+        loadError != null && boqItems.isEmpty() -> ErrorState(message = loadError!!, onRetry = viewModel::retry)
+        !loaded -> SkeletonScreen(headline = false, sections = 3, rows = 3)
+        else -> Column(Modifier.fillMaxSize()) {
+            loadError?.let { ErrorBanner(it, onRetry = viewModel::retry, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            BOQSheet(
+                items = boqItems,
+                coefficients = coefficients,
+                floorOrder = floorOptions,
+                sortMode = sortMode,
+                onSortMode = { sortMode = it },
+                expandedMain = expandedMain,
+                onToggleMain = { k -> expandedMain = if (k in expandedMain) expandedMain - k else expandedMain + k },
+                expandedSub = expandedSub,
+                onToggleSub = { k -> expandedSub = if (k in expandedSub) expandedSub - k else expandedSub + k },
+                copiedItem = copiedItem,
+                onCopy = { copiedItem = it },
+                onPaste = { showAddDialog = true },
+                onClearCopy = { copiedItem = null },
+                onEdit = { editingItem = it },
+                onDelete = { pendingDelete = it },
+                onAdd = { showAddDialog = true }
+            )
         }
-
-        FloatingActionButton(
-            onClick = { showAddDialog = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
-        ) { Icon(Icons.Filled.Add, "Add BOQ item") }
     }
 
     if (showAddDialog) {
@@ -319,88 +261,6 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
     }
 }
 
-/** "1,240 Cft" (or several units joined) — total measured quantity of a group. */
-private fun quantityTotals(items: List<BOQItem>): String =
-    items.groupBy { it.unit }.entries.joinToString(" + ") { (unit, list) -> formatQuantity(list.sumOf { it.quantity }, unit) }
-
-/** Rolls a set of BOQ entries up into their derived material quantities (cement bags, sand
- *  cft, steel kg...) via the coefficient engine — what a group header shows instead of a
- *  bare "3 entries" count, since the quantities are the actually useful figure. */
-private fun materialSummary(items: List<BOQItem>, coefficients: List<MaterialCoefficient>): String {
-    val totals = mutableMapOf<String, Double>()
-    items.forEach { boq ->
-        coefficients.filter { it.workItemKey == boq.materialType && it.coefficientPerUnit > 0 }.forEach { coeff ->
-            val base = CalculationEngine.requiredMaterialQuantity(boq.quantity, coeff.coefficientPerUnit)
-            val withWaste = CalculationEngine.totalRequiredQuantity(base, coeff.wastePercentOverride ?: boq.wastePercent)
-            totals[coeff.materialName] = (totals[coeff.materialName] ?: 0.0) + withWaste
-        }
-    }
-    if (totals.isEmpty()) return "No material coefficients for this item"
-    return totals.entries.sortedBy { it.key }.joinToString("  •  ") { (name, qty) ->
-        "$name ${formatQuantity(qty, "")}"
-    }
-}
-
-/** One BOQ entry's compact row — only Members / Per Member / L / B / D / Qty (item code,
- *  description etc. are the group headers above it). Tap the row to edit. Actions sit in a
- *  single 48dp ⋮ menu where Delete is separated from Edit/Copy by a divider — previously Copy
- *  and Delete were adjacent 32dp icons, easy to mis-tap. Delete still asks to confirm and
- *  offers Undo. */
-@Composable
-private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    AppCard(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
-        if (item.floor.isNotBlank()) {
-            SectionLabel(item.floor, modifier = Modifier.padding(start = 10.dp, top = 8.dp), color = SiteTheme.colors.planned)
-        }
-        Row(Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                CompactStat("M", item.numberOfMembers)
-                CompactStat("PM", item.perMember)
-                CompactStat("L", item.length)
-                CompactStat("B", item.breadth)
-                CompactStat("D", item.depth)
-                CompactStat("Qty", item.quantity, item.unit)
-            }
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "More actions for this ${item.itemCode} entry")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                        onClick = { menuOpen = false; onEdit() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Copy measurements") },
-                        leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-                        onClick = { menuOpen = false; onCopy() }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Delete entry", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                        onClick = { menuOpen = false; onDelete() }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactStat(label: String, value: Double, unit: String = "") {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ColumnLabel(label)
-        Text(formatQuantity(value, unit), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddEditBOQItemDialog(
     notations: List<BOQNotation>,
