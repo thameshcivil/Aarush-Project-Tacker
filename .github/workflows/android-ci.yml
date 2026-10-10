@@ -38,7 +38,16 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle-test.log; exit ${PIPESTATUS[0]}
+        shell: bash
+
+      - name: Report test failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          # Surfaces the first build / test errors as annotations, readable via the GitHub API.
+          grep -E "^e: |What went wrong|FAILED|Exception|Caused by|expected" gradle-test.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do grep -A3 "<failure" "$f" | head -8 | while IFS= read -r line; do echo "::error file=$(basename $f)::${line//%/%25}"; done; done
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace

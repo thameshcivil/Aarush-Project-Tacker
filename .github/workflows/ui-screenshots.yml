@@ -7,6 +7,9 @@ on:
   push:
     branches: [ "redesign-*" ]
 
+permissions:
+  contents: write
+
 jobs:
   screenshots:
     runs-on: ubuntu-latest
@@ -27,7 +30,26 @@ jobs:
         run: chmod +x gradlew
 
       - name: Record screenshots
-        run: ./gradlew recordPaparazziDebug --stacktrace
+        run: ./gradlew recordPaparazziDebug --stacktrace 2>&1 | tee gradle-shots.log; exit ${PIPESTATUS[0]}
+        shell: bash
+
+      - name: Report failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "^e: |What went wrong|FAILED|Exception|Caused by" gradle-shots.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do grep -A3 "<failure" "$f" | head -8 | while IFS= read -r line; do echo "::error file=$(basename $f)::${line//%/%25}"; done; done
+
+      - name: Publish screenshots to the ui-screenshots branch
+        shell: bash
+        run: |
+          # Also kept on a branch so they can be viewed or fetched with plain git.
+          dest="$(mktemp -d)"; cp -r app/src/test/snapshots/images/. "$dest/"
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan ui-screenshots-tmp; git rm -rqf .; rm -rf app gradle* *.kts *.md docs LICENSE .github 2>/dev/null || true
+          mkdir -p "${GITHUB_REF_NAME}"; cp -r "$dest/." "${GITHUB_REF_NAME}/"
+          git add "${GITHUB_REF_NAME}"; git commit -qm "Screenshots for ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}"
+          git push -f origin HEAD:ui-screenshots
 
       - name: Upload screenshots
         if: always()
