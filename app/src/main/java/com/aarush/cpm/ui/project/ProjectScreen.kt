@@ -150,6 +150,9 @@ internal fun ProjectTopBar(projectName: String, title: String, backToMore: Boole
  *  maroon-tint indicator (theme's secondaryContainer) and a filled label. */
 @Composable
 internal fun ProjectNavigationBar(selectedTab: ProjectTab, onSelect: (ProjectTab) -> Unit) {
+    // Narrow phones (< 360dp): the smaller label size so all five labels fit unclipped.
+    val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 360
+    val labelStyle = if (narrow) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium
     Column {
         HorizontalDivider(color = SiteTheme.colors.hairline)
         NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 0.dp) {
@@ -158,7 +161,7 @@ internal fun ProjectNavigationBar(selectedTab: ProjectTab, onSelect: (ProjectTab
                     selected = tab == selectedTab,
                     onClick = { onSelect(tab) },
                     icon = { Icon(tab.icon, contentDescription = null) },
-                    label = { Text(tab.label, maxLines = 1, softWrap = false) },
+                    label = { Text(tab.label, style = labelStyle, maxLines = 1, softWrap = false) },
                     alwaysShowLabel = true
                 )
             }

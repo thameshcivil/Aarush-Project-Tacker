@@ -59,23 +59,22 @@ internal fun ProjectIdentity(project: Project, large: Boolean, modifier: Modifie
 }
 
 /**
- * Overall progress: gold bar = actual, dark-neutral tick = planned (when a schedule exists),
- * bar turns red when the forecast is late. Labels spell out both numbers so colour is never
- * the only cue.
+ * Overall progress: gold bar = actual, dark-neutral tick = planned (when a schedule exists).
+ * Lateness is stated in red text ("3 days late"); the bar itself stays gold because it shows
+ * actual work done. Labels spell out both numbers so colour is never the only cue.
  */
 @Composable
 internal fun ProgressSummary(actualPercent: Double, plannedPercent: Double?, delayDays: Int?, modifier: Modifier = Modifier, barHeight: Dp = 8.dp) {
-    val late = (delayDays ?: 0) > 0
     Column(modifier.fillMaxWidth()) {
         ProgressRail(
             progress = (actualPercent / 100).toFloat(),
             plannedMarker = plannedPercent?.let { (it / 100).toFloat() },
-            color = if (late) SiteTheme.colors.bad else SiteTheme.colors.accent,
+            color = SiteTheme.colors.accent,
             height = barHeight
         )
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ChartKey(if (late) KeyKind.DELAYED else KeyKind.ACTUAL)
+            ChartKey(KeyKind.ACTUAL)
             Spacer(Modifier.width(4.dp))
             Text("${formatPercent(actualPercent)} done", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             if (plannedPercent != null) {
