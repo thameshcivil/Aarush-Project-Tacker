@@ -121,7 +121,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             viewModel.statusMessage?.let {
-                AppCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors(containerColor = SiteTheme.colors.accentTint)) {
+                AppCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
                 }
                 Spacer(Modifier.height(12.dp))

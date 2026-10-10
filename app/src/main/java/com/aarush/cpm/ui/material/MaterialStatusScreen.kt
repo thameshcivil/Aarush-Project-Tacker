@@ -45,7 +45,7 @@ fun MaterialStatusTabContent(projectId: Long, viewModel: MaterialStatusViewModel
     var detailRow by remember { mutableStateOf<MaterialStatusRow?>(null) }
 
     when {
-        isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SiteTheme.colors.accent) }
+        isLoading -> SkeletonScreen(headline = false, sections = 3, rows = 3)
         rows.isEmpty() -> EmptyState(
             "No materials tracked yet",
             "Add BOQ items linked to a notation with coefficients, or log purchases in Expenses, to see requirements, stock and spend here."

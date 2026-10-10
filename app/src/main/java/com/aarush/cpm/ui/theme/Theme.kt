@@ -122,8 +122,11 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = AarushMaroonDeep,
     secondary = AarushGold,
     onSecondary = Color.White,
-    secondaryContainer = AarushGoldTint,
-    onSecondaryContainer = Color(0xFF4A3305),
+    // Material draws every SELECTED state (chips, segmented buttons, navigation indicator)
+    // with secondaryContainer. It is the maroon tint so selection reads as a primary-action
+    // colour; gold stays reserved for "actual / achieved".
+    secondaryContainer = Color(0xFFF3DEDA),
+    onSecondaryContainer = AarushMaroonDeep,
     tertiary = AarushCrimson,
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFADBD7),
@@ -152,8 +155,8 @@ private val DarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFFFDAD5),
     secondary = AarushGoldBright,
     onSecondary = Color(0xFF3A2805),
-    secondaryContainer = Color(0xFF3A2B12),
-    onSecondaryContainer = Color(0xFFFFE3A8),
+    secondaryContainer = AarushMaroon,
+    onSecondaryContainer = Color(0xFFFFDAD5),
     tertiary = Color(0xFFFF8A7E),
     onTertiary = AarushMaroonDeep,
     background = Night,

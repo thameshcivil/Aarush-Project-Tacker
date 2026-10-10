@@ -24,6 +24,11 @@ import com.aarush.cpm.data.entity.ProjectStatus
 import com.aarush.cpm.data.repository.ProjectRepository
 import com.aarush.cpm.data.repository.ProjectSummaryRepository
 import com.aarush.cpm.data.repository.SampleDataSeeder
+import com.aarush.cpm.data.repository.ScheduleRepository
+import com.aarush.cpm.ui.project.Figure
+import com.aarush.cpm.ui.project.FigureGrid
+import com.aarush.cpm.ui.project.ProgressSummary
+import com.aarush.cpm.ui.project.ProjectIdentity
 import com.aarush.cpm.ui.common.*
 import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,36 +40,49 @@ data class ProjectCardData(
     val totalReceived: Double,
     val totalSpent: Double,
     val profit: Double,
-    val progressPercent: Double
+    /** Actual progress: the schedule's live earned-value % when a schedule exists, otherwise
+     *  the project's last recorded progress (both existing calculations). */
+    val progressPercent: Double,
+    /** Planned % for today from the schedule baseline; null when there is no schedule. */
+    val plannedPercent: Double? = null,
+    /** Working days the forecast finish is behind baseline; null when there is no schedule. */
+    val delayDays: Int? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(
     private val projectRepository: ProjectRepository,
     private val summaryRepository: ProjectSummaryRepository,
-    private val sampleDataSeeder: SampleDataSeeder
+    private val sampleDataSeeder: SampleDataSeeder,
+    private val scheduleRepository: ScheduleRepository
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
     private val statusFilter = MutableStateFlow<ProjectStatus?>(null)
     private val refreshTrigger = MutableStateFlow(0)
 
-    val projectCards: StateFlow<List<ProjectCardData>> =
+    /** Null until the first list has been built (the screen shows a skeleton meanwhile). */
+    val projectCards: StateFlow<List<ProjectCardData>?> =
         combine(query, statusFilter, refreshTrigger) { q, status, _ -> Pair(q, status) }
             .flatMapLatest { (q, status) -> projectRepository.search(q).map { list -> list.filter { status == null || it.status == status } } }
             .map { projects ->
                 projects.map { p ->
                     val summary = summaryRepository.buildSummary(p.id)
+                    // Read-only report (no writes); a failure just leaves planned/delay unknown.
+                    val report = runCatching { scheduleRepository.buildReport(p.id) }.getOrNull()?.takeIf { it.hasSchedule }
+                    val ev = report?.earnedValue
                     ProjectCardData(
                         project = p,
                         totalReceived = summary?.totalReceived ?: 0.0,
                         totalSpent = summary?.totalSpent ?: 0.0,
                         profit = summary?.profit ?: 0.0,
-                        progressPercent = summary?.progressPercent ?: 0.0
+                        progressPercent = ev?.actualPercent ?: summary?.progressPercent ?: 0.0,
+                        plannedPercent = ev?.plannedPercent,
+                        delayDays = report?.takeIf { it.forecastFinish != null }?.projectDelayDays
                     )
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun onQueryChange(q: String) { query.value = q }
     fun onStatusFilterChange(s: ProjectStatus?) { statusFilter.value = s }
@@ -95,7 +113,8 @@ fun DashboardScreen(
     onOpenProject: (Long) -> Unit
 ) {
     LaunchedEffect(Unit) { viewModel.refresh() }
-    val cards by viewModel.projectCards.collectAsState()
+    val loadedCards by viewModel.projectCards.collectAsState()
+    val cards = loadedCards.orEmpty()
     var searchText by remember { mutableStateOf("") }
     var selectedStatus by remember { mutableStateOf<ProjectStatus?>(null) }
     var pendingDelete by remember { mutableStateOf<Project?>(null) }
@@ -147,7 +166,9 @@ fun DashboardScreen(
             }
             Spacer(Modifier.height(12.dp))
 
-            if (cards.isEmpty()) {
+            if (loadedCards == null) {
+                SkeletonScreen(headline = false, sections = 3, rows = 2)
+            } else if (cards.isEmpty()) {
                 if (searchText.isBlank() && selectedStatus == null) {
                     EmptyState(
                         title = "No projects yet",
@@ -188,67 +209,42 @@ fun DashboardScreen(
     }
 }
 
+/** One project in the list: name and client with the status tag on the right and the ⋮ menu,
+ *  overall progress (gold actual, dark-neutral planned tick, red when late), then the four key
+ *  figures in an aligned grid (four across, two on narrow phones). */
 @Composable
-private fun statusColors(status: ProjectStatus) = when (status) {
-    ProjectStatus.COMPLETED -> SiteTheme.colors.good to SiteTheme.colors.goodTint
-    ProjectStatus.ON_HOLD -> SiteTheme.colors.bad to SiteTheme.colors.badTint
-    ProjectStatus.IN_PROGRESS, ProjectStatus.STARTED -> SiteTheme.colors.accentText to SiteTheme.colors.accentTint
-    ProjectStatus.PLANNING -> SiteTheme.colors.planned to SiteTheme.colors.plannedTint
-}
-
-@Composable
-private fun ProjectCard(card: ProjectCardData, onClick: () -> Unit, onDelete: () -> Unit) {
+internal fun ProjectCard(card: ProjectCardData, onClick: () -> Unit, onDelete: () -> Unit) {
     val p = card.project
     var showMenu by remember { mutableStateOf(false) }
     AppCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(modifier = Modifier.weight(1f)) {
-                    val (fg, bg) = statusColors(p.status)
-                    StatusPill(p.status.name.replace("_", " "), fg, bg)
-                    Spacer(Modifier.height(8.dp))
-                    Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOf(p.clientName, p.location).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { NO_VALUE },
-                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                }
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 12.dp)) {
+            ProjectIdentity(p, large = false, trailing = {
                 Box {
-                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More") }
+                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More actions for ${p.name}") }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(text = { Text("Delete project") }, onClick = { showMenu = false; onDelete() })
+                        DropdownMenuItem(text = { Text("Delete project", color = MaterialTheme.colorScheme.error) }, onClick = { showMenu = false; onDelete() })
                     }
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ProgressRail(progress = (card.progressPercent / 100.0).toFloat(), modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(10.dp))
-                Text(formatPercent(card.progressPercent), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            }
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = SiteTheme.colors.hairline)
-            Spacer(Modifier.height(10.dp))
-            // Four equal columns; each figure shrinks to fit rather than being cut off.
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                MiniStat("Value", formatCurrencyShort(p.projectValue), Modifier.weight(1f))
-                MiniStat("Received", formatCurrencyShort(card.totalReceived), Modifier.weight(1f))
-                MiniStat("Spent", formatCurrencyShort(card.totalSpent), Modifier.weight(1f))
-                // Same figure as before (project value − total spent). It is not a profit until
-                // the project is finished, so it is labelled literally and shown in a neutral
-                // colour — red only when spending has exceeded the project value.
-                MiniStat("Value − spent", formatCurrencyShort(card.profit), Modifier.weight(1f),
-                    if (card.profit < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified)
+            })
+            Column(Modifier.padding(end = 12.dp)) {
+                Spacer(Modifier.height(10.dp))
+                ProgressSummary(card.progressPercent, card.plannedPercent, card.delayDays, barHeight = 6.dp)
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = SiteTheme.colors.hairline)
+                Spacer(Modifier.height(4.dp))
+                // Same figures as before (Value − spent = project value − total spent; neutral
+                // unless negative).
+                FigureGrid(
+                    listOf(
+                        Figure("Value", formatCurrencyShort(p.projectValue)),
+                        Figure("Received", formatCurrencyShort(card.totalReceived)),
+                        Figure("Spent", formatCurrencyShort(card.totalSpent)),
+                        Figure("Value − spent", formatCurrencyShort(card.profit),
+                            if (card.profit < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified)
+                    ),
+                    wideColumns = 4, valueSize = 15f
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified) {
-    Column(modifier, horizontalAlignment = Alignment.Start) {
-        SectionLabel(label)
-        Spacer(Modifier.height(2.dp))
-        FitText(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = color, minFontSize = 10.sp)
     }
 }

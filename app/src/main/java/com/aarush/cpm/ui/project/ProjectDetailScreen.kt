@@ -125,14 +125,55 @@ class ProjectDetailViewModel(
     }
 }
 
-/** The project's "Home" tab: header (tap to edit area/rate), money, schedule health, alerts,
- *  Budget 1 vs Budget 2, and budget-vs-actual by category. */
+/** Shared first-load / error handling for the project's Overview and Budget views. Returns
+ *  the summary to draw, or null after drawing the skeleton / error state. */
 @Composable
-fun ProjectHomeTabContent(
+private fun loadedSummary(state: ProjectDetailUiState, viewModel: ProjectDetailViewModel): ProjectSummary? {
+    val summary = state.summary
+    when {
+        summary == null && state.error != null -> ErrorState(message = state.error, onRetry = viewModel::retry)
+        summary == null && state.isLoading -> SkeletonScreen(headline = true, sections = 3, rows = 4)
+        summary == null -> ErrorState(title = "Project not found", message = "This project may have been deleted.", onRetry = viewModel::retry)
+    }
+    return summary
+}
+
+/** Overview tab: project identity, progress (actual vs planned), key figures, schedule and
+ *  budget at a glance, alerts. Budget tables live under Expenses > Budget. */
+@Composable
+fun ProjectOverviewTabContent(
     projectId: Long,
     viewModel: ProjectDetailViewModel,
-    snackbarHostState: SnackbarHostState,
-    onOpenSchedule: () -> Unit = {}
+    onOpenSchedule: () -> Unit,
+    onOpenBudget: () -> Unit
+) {
+    LaunchedEffect(projectId) { viewModel.load(projectId) }
+    val state by viewModel.uiState.collectAsState()
+    val s = loadedSummary(state, viewModel) ?: return
+    Column(Modifier.fillMaxSize()) {
+        RefreshBar(visible = state.isRefreshing)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            state.error?.let { msg -> item { ErrorBanner(msg, onRetry = viewModel::retry) } }
+            item { OverviewHeader(s, state.schedule) }
+            item { OverviewSchedule(state.schedule, state.daysRemaining, onOpenSchedule) }
+            item { OverviewBudgetLink(s, onOpenBudget) }
+            state.schedule?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts -> item { AlertsCard(alerts) } }
+        }
+    }
+}
+
+/** Budget tracking (Expenses > Budget): project value with the area & rate editor, money
+ *  table, Budget 1 vs Budget 2 and budget vs actual by category. Same view model and the
+ *  same Phase 2 tables as before; only its place in the navigation changed. */
+@Composable
+fun BudgetTrackingTabContent(
+    projectId: Long,
+    viewModel: ProjectDetailViewModel,
+    snackbarHostState: SnackbarHostState
 ) {
     LaunchedEffect(projectId) { viewModel.load(projectId) }
     val state by viewModel.uiState.collectAsState()
@@ -140,17 +181,7 @@ fun ProjectHomeTabContent(
     var pendingDeleteComponent by remember { mutableStateOf<ProjectAreaComponent?>(null) }
     val scope = rememberCoroutineScope()
 
-    val summary = state.summary
-    when {
-        summary == null && state.error != null -> { ErrorState(message = state.error!!, onRetry = viewModel::retry); return }
-        summary == null && state.isLoading -> { SkeletonScreen(headline = true, sections = 3, rows = 4); return }
-        summary == null -> {
-            ErrorState(title = "Project not found", message = "This project may have been deleted.", onRetry = viewModel::retry)
-            return
-        }
-    }
-    val s = summary!!
-
+    val s = loadedSummary(state, viewModel) ?: return
     Column(Modifier.fillMaxSize()) {
         RefreshBar(visible = state.isRefreshing)
         LazyColumn(
@@ -161,13 +192,6 @@ fun ProjectHomeTabContent(
             state.error?.let { msg -> item { ErrorBanner(msg, onRetry = viewModel::retry) } }
             item { ProjectValueHeader(s.project, onEditAreaRate = { showAreaDialog = true }) }
             item { MoneySummaryTable(s) }
-            item {
-                TimeProgressTable(s.progressPercent, state.daysRemaining, hasSchedule = state.schedule?.hasSchedule == true)
-            }
-            state.schedule?.let { r -> item { ScheduleHealthCard(r, onOpenSchedule) } }
-            state.schedule?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
-                item { AlertsCard(alerts) }
-            }
             state.budgetComparison?.let { bc -> item { BudgetComparisonTable(bc) } }
             item { CategoryBudgetTable(s.categories) }
         }
@@ -197,68 +221,29 @@ fun ProjectHomeTabContent(
     }
 }
 
-@Composable
-private fun ScheduleHealthCard(r: ScheduleReport, onOpenSchedule: () -> Unit) {
-    AppCard(modifier = Modifier.fillMaxWidth(), onClick = onOpenSchedule) {
-        Column(Modifier.padding(16.dp)) {
-            SectionLabel("Schedule health")
-            Spacer(Modifier.height(8.dp))
-            val ev = r.earnedValue
-            if (!r.hasSchedule || ev == null) {
-                Text("No construction schedule yet", style = MaterialTheme.typography.titleSmall)
-                Text("Generate the residential schedule from your BOQ and budget to track progress, delays and earned value.",
-                    style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
-                Spacer(Modifier.height(10.dp))
-                Button(onClick = onOpenSchedule, shape = MaterialTheme.shapes.small) { Text("Open Schedule") }
-            } else {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(formatPercent(ev.actualPercent), style = FigureStyle)
-                Spacer(Modifier.width(8.dp))
-                Text("done · ${formatPercent(ev.plannedPercent)} planned", style = MaterialTheme.typography.bodySmall,
-                    color = SiteTheme.colors.muted, modifier = Modifier.padding(bottom = 4.dp))
-            }
-            Spacer(Modifier.height(8.dp))
-            ProgressRail(progress = (ev.actualPercent / 100).toFloat(), plannedMarker = (ev.plannedPercent / 100).toFloat(), height = 8.dp)
-            Spacer(Modifier.height(10.dp))
-            val delayColor = if (r.projectDelayDays > 0) SiteTheme.colors.bad else SiteTheme.colors.good
-            MetricRow("Forecast handover", r.forecastFinish?.let { formatDate(it) } ?: NO_VALUE)
-            MetricRow("Against baseline",
-                when {
-                    r.projectDelayDays > 0 -> "${r.projectDelayDays} working days late"
-                    r.projectDelayDays < 0 -> "${-r.projectDelayDays} working days early"
-                    else -> "On time"
-                }, valueColor = delayColor)
-            MetricRow("Schedule index (SPI)", ev.spi?.let { "%.2f".format(it) } ?: NO_VALUE,
-                valueColor = ev.spi?.let { if (it < 0.95) SiteTheme.colors.bad else SiteTheme.colors.good } ?: androidx.compose.ui.graphics.Color.Unspecified)
-            MetricRow("Cost index (CPI)", ev.cpi?.let { "%.2f".format(it) } ?: NO_VALUE,
-                valueColor = ev.cpi?.let { if (it < 0.95) SiteTheme.colors.bad else SiteTheme.colors.good } ?: androidx.compose.ui.graphics.Color.Unspecified)
-            MetricRow("Activities", "${r.completedCount} done · ${r.inProgressCount} running · ${r.delayedCount} delayed")
-            }
-        }
-    }
-}
-
+/** Alerts as one section (title outside, rows divided by hairlines). Red icon = critical. */
 @Composable
 internal fun AlertsCard(alerts: List<ScheduleAlert>, max: Int = 6) {
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            SectionLabel("Alerts · ${alerts.size}")
-            Spacer(Modifier.height(6.dp))
-            alerts.take(max).forEachIndexed { i, a ->
-                Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
-                    Icon(
-                        if (a.isCritical) Icons.Filled.ErrorOutline else Icons.Filled.Info, contentDescription = null,
-                        tint = if (a.isCritical) SiteTheme.colors.bad else SiteTheme.colors.planned, modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        SectionLabel(humanizeLabel(a.type.name))
-                        Text(a.message, style = MaterialTheme.typography.bodySmall)
-                    }
+    LedgerSection("Alerts (${alerts.size})") {
+        val shown = alerts.take(max)
+        shown.forEachIndexed { i, a ->
+            Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.Top) {
+                Icon(
+                    if (a.isCritical) Icons.Filled.ErrorOutline else Icons.Filled.Info,
+                    contentDescription = if (a.isCritical) "Critical" else null,
+                    tint = if (a.isCritical) SiteTheme.colors.bad else SiteTheme.colors.planned, modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    SectionLabel(humanizeLabel(a.type.name))
+                    Text(a.message, style = MaterialTheme.typography.bodySmall)
                 }
-                if (i < alerts.take(max).lastIndex) HorizontalDivider(color = SiteTheme.colors.hairline)
             }
-            if (alerts.size > max) Text("+${alerts.size - max} more on the Schedule tab", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+            if (i < shown.lastIndex) HorizontalDivider(color = SiteTheme.colors.hairline)
+        }
+        if (alerts.size > max) {
+            Text("+${alerts.size - max} more on the Schedule tab", style = MaterialTheme.typography.labelSmall,
+                color = SiteTheme.colors.muted, modifier = Modifier.padding(bottom = 10.dp))
         }
     }
 }

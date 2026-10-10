@@ -300,7 +300,7 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
     var tab by remember { mutableStateOf(0) }
 
     if (state.isLoading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SiteTheme.colors.accent) }
+        com.aarush.cpm.ui.common.SkeletonScreen(headline = false, sections = 2, rows = 5)
         return
     }
     LaunchedEffect(state.savedMessage) { state.savedMessage?.let { snackbarHostState?.showSnackbar(it) } }
@@ -309,7 +309,7 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
         Column(Modifier.fillMaxSize()) {
             TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface,
                 indicator = { positions ->
-                    TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(positions[tab]), color = SiteTheme.colors.accent)
+                    TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(positions[tab]), color = MaterialTheme.colorScheme.primary)
                 }) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Project") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Coefficients") })

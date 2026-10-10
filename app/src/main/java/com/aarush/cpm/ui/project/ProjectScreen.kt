@@ -1,12 +1,11 @@
 package com.aarush.cpm.ui.project
 
-import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,7 +14,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,22 +33,34 @@ import com.aarush.cpm.ui.theme.SiteTheme
 import com.aarush.cpm.ui.vendor.VendorTabContent
 import com.aarush.cpm.ui.vendor.VendorViewModel
 
-private enum class ProjectTab(val label: String, val icon: ImageVector) {
-    Home("Home", Icons.Filled.Home),
-    Schedule("Schedule", Icons.Filled.CalendarMonth),
+/** The five primary destinations (redesign Phase 5; was seven scrolling tabs). */
+internal enum class ProjectTab(val label: String, val icon: ImageVector) {
+    Overview("Overview", Icons.Filled.Dashboard),
     BOQ("BOQ", Icons.AutoMirrored.Filled.ListAlt),
-    MaterialStatus("Materials", Icons.Filled.Inventory),
+    Schedule("Schedule", Icons.Filled.CalendarMonth),
     Expenses("Expenses", Icons.Filled.Receipt),
-    Vendors("Vendors", Icons.Filled.Engineering),
-    Settings("Settings", Icons.Filled.Tune)
+    More("More", Icons.Filled.MoreHoriz)
 }
 
-/** One project's whole workspace: a shared top bar + a horizontally scrollable tab bar
- *  (seven tabs don't fit Material's fixed NavigationBar legibly). */
+/** Destinations under More: the same screens that used to be tabs 4, 6 and 7. */
+internal enum class MoreDestination(val label: String, val hint: String, val icon: ImageVector) {
+    Materials("Materials", "Stock, purchases and labour contract balances", Icons.Filled.Inventory),
+    Vendors("Vendors", "Contracts, rates and payments", Icons.Filled.Engineering),
+    Settings("Project settings", "Details, cost distribution, coefficients and rates", Icons.Filled.Tune)
+}
+
+/** The Expenses tab's two views: the expense ledger and Budget tracking. */
+internal enum class MoneyView(val label: String) { Expenses("Expenses"), Budget("Budget") }
+
+/** One project's whole workspace: shared top bar, five-destination bottom navigation. Tabs
+ *  are in-screen state (not routes), so app routes and back behaviour are unchanged; Back
+ *  inside a More destination returns to the More list first. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> Unit) {
-    var selectedTab by rememberSaveable { mutableStateOf(ProjectTab.Home) }
+    var selectedTab by rememberSaveable { mutableStateOf(ProjectTab.Overview) }
+    var moreDestination by rememberSaveable { mutableStateOf<MoreDestination?>(null) }
+    var moneyView by rememberSaveable { mutableStateOf(MoneyView.Expenses) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val homeViewModel: ProjectDetailViewModel = viewModel(factory = factory)
@@ -63,86 +73,132 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
     val projectName by homeViewModel.projectName.collectAsState()
     LaunchedEffect(projectId) { homeViewModel.observeName(projectId) }
 
+    val inMoreDestination = selectedTab == ProjectTab.More && moreDestination != null
+    BackHandler(enabled = inMoreDestination) { moreDestination = null }
+    val title = when {
+        inMoreDestination -> moreDestination!!.label
+        selectedTab == ProjectTab.Expenses && moneyView == MoneyView.Budget -> "Budget tracking"
+        else -> selectedTab.label
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                    com.aarush.cpm.ui.common.AarushMark(Modifier.height(24.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        SectionLabel(projectName.ifBlank { "Project" })
-                        Text(selectedTab.label, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    }
-                },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
-            )
+            ProjectTopBar(projectName, title, backToMore = inMoreDestination,
+                onBack = { if (inMoreDestination) moreDestination = null else onBack() })
         },
         bottomBar = {
-            ScrollableProjectBottomBar(selectedTab = selectedTab, onSelect = { selectedTab = it })
+            ProjectNavigationBar(selectedTab = selectedTab, onSelect = { tab ->
+                // Re-tapping More returns to its list.
+                if (tab == ProjectTab.More && selectedTab == ProjectTab.More) moreDestination = null
+                selectedTab = tab
+            })
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (selectedTab) {
-                ProjectTab.Home -> ProjectHomeTabContent(
-                    projectId = projectId, viewModel = homeViewModel, snackbarHostState = snackbarHostState,
-                    onOpenSchedule = { selectedTab = ProjectTab.Schedule }
+                ProjectTab.Overview -> ProjectOverviewTabContent(
+                    projectId = projectId, viewModel = homeViewModel,
+                    onOpenSchedule = { selectedTab = ProjectTab.Schedule },
+                    onOpenBudget = { moneyView = MoneyView.Budget; selectedTab = ProjectTab.Expenses }
                 )
-                ProjectTab.Schedule -> ScheduleTabContent(projectId = projectId, viewModel = scheduleViewModel, snackbarHostState = snackbarHostState)
-                ProjectTab.MaterialStatus -> MaterialStatusTabContent(projectId = projectId, viewModel = materialStatusViewModel)
                 ProjectTab.BOQ -> BOQTabContent(projectId = projectId, viewModel = boqViewModel, snackbarHostState = snackbarHostState)
-                ProjectTab.Expenses -> ExpenseTabContent(projectId = projectId, viewModel = expenseViewModel, snackbarHostState = snackbarHostState)
-                ProjectTab.Vendors -> VendorTabContent(projectId = projectId, viewModel = vendorViewModel, snackbarHostState = snackbarHostState)
-                ProjectTab.Settings -> ProjectSettingsTabContent(projectId = projectId, viewModel = settingsViewModel, snackbarHostState = snackbarHostState)
+                ProjectTab.Schedule -> ScheduleTabContent(projectId = projectId, viewModel = scheduleViewModel, snackbarHostState = snackbarHostState)
+                ProjectTab.Expenses -> Column(Modifier.fillMaxSize()) {
+                    MoneyViewSwitch(moneyView, onSelect = { moneyView = it })
+                    when (moneyView) {
+                        MoneyView.Expenses -> ExpenseTabContent(projectId = projectId, viewModel = expenseViewModel, snackbarHostState = snackbarHostState)
+                        MoneyView.Budget -> BudgetTrackingTabContent(projectId = projectId, viewModel = homeViewModel, snackbarHostState = snackbarHostState)
+                    }
+                }
+                ProjectTab.More -> when (moreDestination) {
+                    null -> MoreList(onOpen = { moreDestination = it })
+                    MoreDestination.Materials -> MaterialStatusTabContent(projectId = projectId, viewModel = materialStatusViewModel)
+                    MoreDestination.Vendors -> VendorTabContent(projectId = projectId, viewModel = vendorViewModel, snackbarHostState = snackbarHostState)
+                    MoreDestination.Settings -> ProjectSettingsTabContent(projectId = projectId, viewModel = settingsViewModel, snackbarHostState = snackbarHostState)
+                }
             }
         }
     }
 }
 
+/** Logo mark, project name and the current destination; Back goes to the project list, or to
+ *  the More list from inside Materials / Vendors / Project settings. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScrollableProjectBottomBar(selectedTab: ProjectTab, onSelect: (ProjectTab) -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-        Column {
-            HorizontalDivider(color = SiteTheme.colors.hairline)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .horizontalScroll(rememberScrollState())
-                    .height(68.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ProjectTab.values().forEach { tab ->
-                    val isSelected = tab == selectedTab
-                    val contentColor = if (isSelected) MaterialTheme.colorScheme.onSurface else SiteTheme.colors.muted
-                    Column(
-                        modifier = Modifier
-                            .width(78.dp)
-                            .fillMaxHeight()
-                            .clickable(onClick = { onSelect(tab) }),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        // Accent bar marks the active tab — the single orange on the bar.
-                        Box(
-                            Modifier.width(24.dp).height(3.dp)
-                                .background(if (isSelected) SiteTheme.colors.accent else androidx.compose.ui.graphics.Color.Transparent)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Icon(tab.icon, contentDescription = tab.label, tint = if (isSelected) SiteTheme.colors.accent else contentColor)
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            tab.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = contentColor,
-                            maxLines = 1,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+internal fun ProjectTopBar(projectName: String, title: String, backToMore: Boolean, onBack: () -> Unit) {
+    TopAppBar(
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.aarush.cpm.ui.common.AarushMark(Modifier.height(24.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    SectionLabel(projectName.ifBlank { "Project" })
+                    Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+        },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = if (backToMore) "Back to More" else "Back to projects")
+            }
+        }
+    )
+}
+
+/** Material bottom navigation with five fixed destinations; the selected one gets the
+ *  maroon-tint indicator (theme's secondaryContainer) and a filled label. */
+@Composable
+internal fun ProjectNavigationBar(selectedTab: ProjectTab, onSelect: (ProjectTab) -> Unit) {
+    Column {
+        HorizontalDivider(color = SiteTheme.colors.hairline)
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 0.dp) {
+            ProjectTab.values().forEach { tab ->
+                NavigationBarItem(
+                    selected = tab == selectedTab,
+                    onClick = { onSelect(tab) },
+                    icon = { Icon(tab.icon, contentDescription = null) },
+                    label = { Text(tab.label, maxLines = 1, softWrap = false) },
+                    alwaysShowLabel = true
+                )
+            }
+        }
+    }
+}
+
+/** Expenses | Budget switch at the top of the Expenses tab. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun MoneyViewSwitch(view: MoneyView, onSelect: (MoneyView) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+        val all = MoneyView.values()
+        all.forEachIndexed { i, v ->
+            SegmentedButton(
+                selected = view == v, onClick = { onSelect(v) },
+                shape = SegmentedButtonDefaults.itemShape(i, all.size, baseShape = MaterialTheme.shapes.small)
+            ) { Text(v.label, maxLines = 1) }
+        }
+    }
+}
+
+/** The More list: Materials, Vendors, Project settings (48dp+ rows, hairline dividers). */
+@Composable
+internal fun MoreList(onOpen: (MoreDestination) -> Unit) {
+    Column(Modifier.fillMaxSize().padding(top = 8.dp)) {
+        MoreDestination.values().forEachIndexed { i, d ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = { onOpen(d) }).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(d.icon, contentDescription = null, tint = SiteTheme.colors.muted)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(d.label, style = MaterialTheme.typography.titleSmall)
+                    Text(d.hint, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = SiteTheme.colors.muted)
+            }
+            if (i < MoreDestination.values().lastIndex) HorizontalDivider(Modifier.padding(start = 56.dp), color = SiteTheme.colors.hairline)
         }
     }
 }

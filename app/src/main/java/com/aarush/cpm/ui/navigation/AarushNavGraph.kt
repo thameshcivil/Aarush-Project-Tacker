@@ -69,12 +69,8 @@ fun AarushNavGraph(appContainer: AppContainer) {
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = com.aarush.cpm.ui.theme.SiteTheme.colors.accent,
-                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                                indicatorColor = com.aarush.cpm.ui.theme.SiteTheme.colors.accentTint
-                            )
+                            label = { Text(tab.label) }
+                            // Default colours: maroon-tint indicator from the theme (gold is for "actual").
                         )
                     }
                 }

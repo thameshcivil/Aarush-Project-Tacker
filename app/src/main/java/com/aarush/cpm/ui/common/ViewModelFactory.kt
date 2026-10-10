@@ -15,7 +15,7 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
                 com.aarush.cpm.ui.login.LoginViewModel(container.authRepository, container.authPreferencesRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.dashboard.DashboardViewModel::class.java) ->
-                com.aarush.cpm.ui.dashboard.DashboardViewModel(container.projectRepository, container.projectSummaryRepository, container.sampleDataSeeder) as T
+                com.aarush.cpm.ui.dashboard.DashboardViewModel(container.projectRepository, container.projectSummaryRepository, container.sampleDataSeeder, container.scheduleRepository) as T
 
             modelClass.isAssignableFrom(com.aarush.cpm.ui.project.CreateProjectViewModel::class.java) ->
                 com.aarush.cpm.ui.project.CreateProjectViewModel(container.projectRepository, container.builtInDefaultsSeeder) as T
