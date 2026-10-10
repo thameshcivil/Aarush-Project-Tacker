@@ -189,27 +189,36 @@ private fun SubHeading(text: String) {
 // ------------------------------------------------------------------ categories
 
 /**
- * Budget vs actual by category: Category | Budget | Actual | Variance. Amounts in the
- * columns are short (₹12.40 L) so four columns fit a 320dp phone; the exact over-budget amount
- * is spelled out in red under the row, and TalkBack reads each row with exact amounts.
+ * Budget vs actual by category: Category | Budget | Actual | Variance. Column amounts are
+ * short (₹12.40 L); the exact over-budget amount is spelled out in red under the row, and
+ * TalkBack reads each row with exact amounts.
+ *
+ * Narrow phones: when the sheet is under 290dp wide (about a 340dp screen) the category name
+ * moves to its own line and Budget / Actual / Variance get the full width beneath it, so no
+ * amount ever has to shrink below legibility or be cut.
  */
 @Composable
 internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modifier: Modifier = Modifier) {
     LedgerSection("Budget vs actual by category", modifier) {
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            ColumnLabel("Category", Modifier.weight(CategoryWeight))
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Budget") }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Actual") }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Variance") }
-        }
-        HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
-        categories.forEachIndexed { i, cat ->
-            CategoryRow(cat)
-            if (i < categories.lastIndex) HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
-        }
-        if (categories.isEmpty()) {
-            Text("No cost distribution set for this project. Set it in Settings, Project.",
-                style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted, modifier = Modifier.padding(vertical = 12.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stacked = maxWidth < 290.dp
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!stacked) ColumnLabel("Category", Modifier.weight(CategoryWeight))
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Budget") }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Actual") }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { ColumnLabel("Variance") }
+                }
+                HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
+                categories.forEachIndexed { i, cat ->
+                    CategoryRow(cat, stacked)
+                    if (i < categories.lastIndex) HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
+                }
+                if (categories.isEmpty()) {
+                    Text("No cost distribution set for this project. Set it in Settings, Project.",
+                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted, modifier = Modifier.padding(vertical = 12.dp))
+                }
+            }
         }
     }
 }
@@ -217,18 +226,27 @@ internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modif
 private const val CategoryWeight = 1.25f
 
 @Composable
-private fun CategoryRow(cat: CategoryBudgetVsActual) {
+private fun CategoryRow(cat: CategoryBudgetVsActual, stacked: Boolean) {
     val over = cat.variance < 0
     val name = humanizeLabel(cat.allocation.category.name)
-    val spoken = "$name, ${formatPercent(cat.allocation.percentOfProjectValue)} of value. Budget ${formatCurrency(cat.budget)}, " +
-        "actual ${formatCurrency(cat.actual)}, " +
+    val share = "${formatPercent(cat.allocation.percentOfProjectValue)} of value"
+    val spoken = "$name, $share. Budget ${formatCurrency(cat.budget)}, actual ${formatCurrency(cat.actual)}, " +
         (if (over) "over by ${formatCurrency(-cat.variance)}" else "remaining ${formatCurrency(cat.variance)}")
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { contentDescription = spoken }) {
+        if (stacked) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(6.dp))
+                Text(share, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+            }
+            Spacer(Modifier.height(4.dp))
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(CategoryWeight).padding(end = 6.dp)) {
-                Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                Text("${formatPercent(cat.allocation.percentOfProjectValue)} of value", style = MaterialTheme.typography.labelSmall,
-                    color = SiteTheme.colors.muted)
+            if (!stacked) {
+                Column(Modifier.weight(CategoryWeight).padding(end = 6.dp)) {
+                    Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text(share, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                }
             }
             MoneyCell(formatCurrencyShort(cat.budget), Modifier.weight(1f))
             MoneyCell(formatCurrencyShort(cat.actual), Modifier.weight(1f))
