@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
@@ -198,8 +200,8 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                             )
                         }
                         TextButton(onClick = { showAddDialog = true }) { Text("Paste") }
-                        IconButton(onClick = { copiedItem = null }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear copied", modifier = Modifier.size(18.dp))
+                        IconButton(onClick = { copiedItem = null }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear copied measurements", modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -227,8 +229,8 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                                         Text(materialSummary(mainItems, coefficients), style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                                     }
                                     if (mainExpanded) {
-                                        IconButton(onClick = { copiedItem = mainItems.first() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy from this group", modifier = Modifier.size(18.dp))
+                                        IconButton(onClick = { copiedItem = mainItems.first() }) {
+                                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements from this group", modifier = Modifier.size(20.dp))
                                         }
                                     }
                                     Icon(if (mainExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (mainExpanded) "Collapse" else "Expand")
@@ -251,8 +253,8 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                                                 Text("${quantityTotals(subItems)} · ${materialSummary(subItems, coefficients)}", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                                             }
                                             if (subExpanded) {
-                                                IconButton(onClick = { copiedItem = subItems.first() }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy from this group", modifier = Modifier.size(17.dp))
+                                                IconButton(onClick = { copiedItem = subItems.first() }) {
+                                                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements from this group", modifier = Modifier.size(20.dp))
                                                 }
                                             }
                                             Icon(if (subExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (subExpanded) "Collapse" else "Expand", modifier = Modifier.size(20.dp))
@@ -338,11 +340,14 @@ private fun materialSummary(items: List<BOQItem>, coefficients: List<MaterialCoe
     }
 }
 
-/** One BOQ entry's compact row — per request, only Members / Per Member / L / B / D / Qty,
- *  no item code, description, category, waste, or remark repeated here (they're already the
- *  group headers this row sits under). Tap the row to edit; the trailing icons copy/delete. */
+/** One BOQ entry's compact row — only Members / Per Member / L / B / D / Qty (item code,
+ *  description etc. are the group headers above it). Tap the row to edit. Actions sit in a
+ *  single 48dp ⋮ menu where Delete is separated from Edit/Copy by a divider — previously Copy
+ *  and Delete were adjacent 32dp icons, easy to mis-tap. Delete still asks to confirm and
+ *  offers Undo. */
 @Composable
 private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
     AppCard(onClick = onEdit, modifier = Modifier.fillMaxWidth().padding(start = 28.dp)) {
         if (item.floor.isNotBlank()) {
             SectionLabel(item.floor, modifier = Modifier.padding(start = 10.dp, top = 8.dp), color = SiteTheme.colors.planned)
@@ -359,11 +364,28 @@ private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> U
                 CompactStat("D", item.depth)
                 CompactStat("Qty", item.quantity, item.unit)
             }
-            IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = "Copy measurements", modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More actions for this ${item.itemCode} entry")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                        onClick = { menuOpen = false; onEdit() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy measurements") },
+                        leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                        onClick = { menuOpen = false; onCopy() }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Delete entry", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { menuOpen = false; onDelete() }
+                    )
+                }
             }
         }
     }

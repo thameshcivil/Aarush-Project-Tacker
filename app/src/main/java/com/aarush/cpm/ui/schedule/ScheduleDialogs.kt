@@ -231,6 +231,7 @@ internal fun ActivityDetailSheet(
     val t = view.tracking
     val (fg, bg) = statusColors(t.status)
     var confirmDelete by remember { mutableStateOf(false) }
+    var pendingLogRemoval by remember { mutableStateOf<ActivityProgressLog?>(null) }
     val names = all.associate { it.activity.id to it.activity.activityName }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SiteTheme.colors.sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
@@ -307,7 +308,8 @@ internal fun ActivityDetailSheet(
                             log.notes.takeIf { it.isNotBlank() }
                         ).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                     }
-                    TextButton(onClick = { onDeleteLog(log) }) { Text("Remove") }
+                    // Previously removed immediately; now confirms first (and the screen offers Undo).
+                    TextButton(onClick = { pendingLogRemoval = log }) { Text("Remove") }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -317,6 +319,13 @@ internal fun ActivityDetailSheet(
     if (confirmDelete) {
         ConfirmDeleteDialog(itemLabel = "\"${a.activityName}\" with its links and progress", onConfirm = { confirmDelete = false; onDelete() },
             onDismiss = { confirmDelete = false })
+    }
+    pendingLogRemoval?.let { log ->
+        ConfirmRemoveProgressDialog(
+            log = log, activityName = a.activityName, unit = a.unit, booksMaterial = a.linkedNotationCode.isNotBlank(),
+            onConfirm = { pendingLogRemoval = null; onDeleteLog(log) },
+            onDismiss = { pendingLogRemoval = null }
+        )
     }
 }
 
@@ -481,6 +490,49 @@ internal fun ActivityEditDialog(
                 )
             }) { Text("Save") }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+// ------------------------------------------------------------------ remove progress entry
+
+/**
+ * Confirmation before removing a site progress entry, spelling out what else changes:
+ * the activity's progress is recalculated and — for BOQ-linked work — the material usage
+ * this entry booked (quantity × coefficients) is returned to stock. Used from both the
+ * activity sheet and the Site log so the behaviour is identical everywhere.
+ */
+@Composable
+internal fun ConfirmRemoveProgressDialog(
+    log: ActivityProgressLog,
+    activityName: String,
+    unit: String,
+    booksMaterial: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val what = listOfNotNull(
+        log.quantityDone.takeIf { it > 0 }?.let { formatQuantity(round1(it), unit) + " done" },
+        log.percentComplete?.let { "${formatPercent(it)} complete" },
+        log.labourCount.takeIf { it > 0 }?.let { "$it workers" }
+    ).joinToString(" · ")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remove progress entry?") },
+        text = {
+            Column {
+                Text("${formatDate(log.date)}${if (activityName.isNotBlank()) " · $activityName" else ""}", style = MaterialTheme.typography.titleSmall)
+                if (what.isNotBlank()) Text(what, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                Spacer(Modifier.height(10.dp))
+                Text("• The activity's progress and the project's earned value will be recalculated.", style = MaterialTheme.typography.bodySmall)
+                if (booksMaterial && log.quantityDone > 0) {
+                    Text("• The materials this entry used (from the BOQ coefficients) will be returned to stock in Material Status.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Text("• You can Undo straight after.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

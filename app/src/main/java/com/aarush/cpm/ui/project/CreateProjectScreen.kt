@@ -234,7 +234,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                 Column(Modifier.padding(14.dp)) {
                     com.aarush.cpm.ui.common.SectionLabel("Project value · Budget 1")
                     Spacer(Modifier.height(4.dp))
-                    Text(formatCurrency(s.computedValue), style = com.aarush.cpm.ui.theme.FigureStyle)
+                    com.aarush.cpm.ui.common.FitText(formatCurrency(s.computedValue), style = com.aarush.cpm.ui.theme.FigureStyle)
                     Text("Total area: ${"%.0f".format(s.totalArea)} sqft", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
@@ -113,7 +116,17 @@ class ScheduleViewModel(
             scheduleRepository.logProgress(activityId, date, qty, percent, labour, notes)
         }
 
-    fun deleteLog(log: ActivityProgressLog) = run("Progress entry removed") { scheduleRepository.deleteLog(log) }
+    /** Removes a progress entry. No message here — the screen shows its own snackbar with Undo. */
+    fun deleteLog(log: ActivityProgressLog) = run(null) { scheduleRepository.deleteLog(log) }
+
+    /** Undo for [deleteLog]: logs the same entry again through the normal logging path, so
+     *  progress and the material consumption it books are re-applied exactly as when first
+     *  entered (the restored entry gets a new id). */
+    fun restoreLog(log: ActivityProgressLog) = run("Progress entry restored") {
+        scheduleRepository.logProgress(
+            log.activityId, WorkCalendar.toLocalDate(log.date), log.quantityDone, log.percentComplete, log.labourCount, log.notes
+        )
+    }
 
     fun exportCsv(context: Context, uri: Uri) = run("Schedule exported") {
         val csv = scheduleRepository.exportCsv(projectId)
@@ -145,6 +158,21 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
     var adding by remember { mutableStateOf(false) }
     var loggingFor by remember { mutableStateOf<ScheduleActivityView?>(null) }
     var pickActivityToLog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    /** Called after the user confirmed removal: removes the entry, then offers Undo. */
+    val removeLog: (ActivityProgressLog) -> Unit = { log ->
+        val booked = log.quantityDone > 0 && state.report?.activities
+            ?.find { it.activity.id == log.activityId }?.activity?.linkedNotationCode?.isNotBlank() == true
+        viewModel.deleteLog(log)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = if (booked) "Progress entry removed — materials returned to stock" else "Progress entry removed",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.restoreLog(log)
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri?.let { viewModel.exportCsv(context, it) }
     }
@@ -194,7 +222,7 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
                     )
                     ScheduleSection.ACTIVITIES -> ActivitiesSection(report, onOpen = { detailId = it })
                     ScheduleSection.GANTT -> GanttSection(report, onOpen = { detailId = it })
-                    ScheduleSection.LOG -> SiteLogSection(report, onDeleteLog = { viewModel.deleteLog(it) })
+                    ScheduleSection.LOG -> SiteLogSection(report, onDeleteLog = removeLog)
                 }
             }
             when (section) {
@@ -252,7 +280,7 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
                 onLog = { loggingFor = view },
                 onEdit = { editing = view },
                 onDelete = { detailId = null; viewModel.deleteActivity(view.activity) },
-                onDeleteLog = { viewModel.deleteLog(it) },
+                onDeleteLog = removeLog,
                 onMarkComplete = {
                     viewModel.logProgress(view.activity.id, LocalDate.now(), 0.0, 100.0, view.activity.requiredLabourCount, "Marked complete")
                 }
@@ -526,7 +554,8 @@ internal fun statusColors(status: ActivityStatus) = when (status) {
     ActivityStatus.COMPLETED -> SiteTheme.colors.good to SiteTheme.colors.goodTint
     ActivityStatus.DELAYED -> SiteTheme.colors.bad to SiteTheme.colors.badTint
     ActivityStatus.IN_PROGRESS -> SiteTheme.colors.accentText to SiteTheme.colors.accentTint
-    ActivityStatus.NOT_STARTED -> SiteTheme.colors.muted to SiteTheme.colors.hairline
+    // Muted text on the soft surface tint (4.9:1) — on the hairline grey it was 4.4:1.
+    ActivityStatus.NOT_STARTED -> SiteTheme.colors.muted to MaterialTheme.colorScheme.surfaceVariant
 }
 
 /** One compact activity line: name, dates, progress against plan. */
@@ -539,7 +568,15 @@ internal fun ActivityLine(v: ScheduleActivityView, onClick: () -> Unit) {
             Column(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (v.activity.isMilestone) Icon(Icons.Filled.Flag, null, tint = SiteTheme.colors.accent, modifier = Modifier.size(14.dp).padding(end = 2.dp))
-                    Text(v.activity.activityName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
+                    // Floor shown as a leading tag (same codes as the Gantt) so it stays visible
+                    // when a long name is shortened; the tag carries the full floor name for
+                    // screen readers.
+                    val code = floorCode(v.activity.floorLabel)
+                    if (code.isNotEmpty()) {
+                        Text(code, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = SiteTheme.colors.maroon,
+                            modifier = Modifier.padding(end = 6.dp).semantics { contentDescription = v.activity.floorLabel })
+                    }
+                    Text(activityBaseName(v.activity.activityName, v.activity.floorLabel), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(6.dp))
                     StatusPill(if (t.isCritical && t.status != ActivityStatus.COMPLETED) "${t.status.name.replace('_', ' ')} · crit" else t.status.name.replace('_', ' '), fg, bg)
@@ -652,8 +689,14 @@ private fun SiteLogSection(report: ScheduleReport, onDeleteLog: (ActivityProgres
         }
     }
     pendingDelete?.let { log ->
-        ConfirmDeleteDialog(itemLabel = "this progress entry (its material consumption is removed too)", onConfirm = {
-            pendingDelete = null; onDeleteLog(log)
-        }, onDismiss = { pendingDelete = null })
+        val view = report.activities.find { it.activity.id == log.activityId }
+        ConfirmRemoveProgressDialog(
+            log = log,
+            activityName = view?.activity?.activityName ?: "",
+            unit = view?.activity?.unit ?: "",
+            booksMaterial = view?.activity?.linkedNotationCode?.isNotBlank() == true,
+            onConfirm = { pendingDelete = null; onDeleteLog(log) },
+            onDismiss = { pendingDelete = null }
+        )
     }
 }

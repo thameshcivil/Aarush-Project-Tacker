@@ -136,7 +136,7 @@ fun ProjectHomeTabContent(
                         Icon(Icons.Filled.Edit, contentDescription = "Edit area & rate", tint = SiteTheme.colors.muted, modifier = Modifier.size(16.dp))
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(formatCurrency(p.projectValue), style = FigureStyle.copy(fontSize = FigureStyle.fontSize * 1.25f))
+                    FitText(formatCurrency(p.projectValue), style = FigureStyle.copy(fontSize = FigureStyle.fontSize * 1.25f))
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "${formatQuantity(p.plinthAreaSqft, "sqft")} @ ${formatCurrency(p.ratePerSqft)}/sqft · ${p.projectType} · ${p.numberOfFloors} floor${if (p.numberOfFloors == 1) "" else "s"}",
@@ -160,8 +160,9 @@ fun ProjectHomeTabContent(
                     StatTile("Cash balance", formatCurrencyShort(summary.cashBalance), tile.weight(1f),
                         valueColor = if (summary.cashBalance < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
                         caption = "Received − spent")
-                    StatTile("Profit", formatCurrencyShort(summary.profit), tile.weight(1f),
-                        valueColor = if (summary.profit < 0) SiteTheme.colors.bad else SiteTheme.colors.good,
+                    // Same figure as before (value − spent); labelled literally, neutral unless negative.
+                    StatTile("Value − spent", formatCurrencyShort(summary.profit), tile.weight(1f),
+                        valueColor = if (summary.profit < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
                         caption = "${formatPercent(summary.profitPercent)} of value")
                 }
                 StatRow {
@@ -408,11 +409,11 @@ private fun BudgetComparisonCard(bc: BudgetComparison) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("Budget 1 · plinth area", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
-                    Text(formatCurrencyShort(bc.budget1), style = FigureStyle)
+                    FitText(formatCurrencyShort(bc.budget1), style = FigureStyle)
                 }
                 Column(Modifier.weight(1f)) {
                     Text("Budget 2 · measured", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
-                    Text(formatCurrencyShort(bc.budget2), style = FigureStyle, color = SiteTheme.colors.planned)
+                    FitText(formatCurrencyShort(bc.budget2), style = FigureStyle, color = SiteTheme.colors.planned)
                 }
             }
             Spacer(Modifier.height(10.dp))

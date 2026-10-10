@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.entity.Project
@@ -228,21 +229,26 @@ private fun ProjectCard(card: ProjectCardData, onClick: () -> Unit, onDelete: ()
             Spacer(Modifier.height(12.dp))
             HorizontalDivider(color = SiteTheme.colors.hairline)
             Spacer(Modifier.height(10.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                MiniStat("Value", formatCurrencyShort(p.projectValue))
-                MiniStat("Received", formatCurrencyShort(card.totalReceived))
-                MiniStat("Spent", formatCurrencyShort(card.totalSpent))
-                MiniStat("P / L", formatCurrencyShort(card.profit), if (card.profit < 0) SiteTheme.colors.bad else SiteTheme.colors.good)
+            // Four equal columns; each figure shrinks to fit rather than being cut off.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                MiniStat("Value", formatCurrencyShort(p.projectValue), Modifier.weight(1f))
+                MiniStat("Received", formatCurrencyShort(card.totalReceived), Modifier.weight(1f))
+                MiniStat("Spent", formatCurrencyShort(card.totalSpent), Modifier.weight(1f))
+                // Same figure as before (project value − total spent). It is not a profit until
+                // the project is finished, so it is labelled literally and shown in a neutral
+                // colour — red only when spending has exceeded the project value.
+                MiniStat("Value − spent", formatCurrencyShort(card.profit), Modifier.weight(1f),
+                    if (card.profit < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified)
             }
         }
     }
 }
 
 @Composable
-private fun MiniStat(label: String, value: String, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified) {
-    Column(horizontalAlignment = Alignment.Start) {
+private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified) {
+    Column(modifier, horizontalAlignment = Alignment.Start) {
         SectionLabel(label)
         Spacer(Modifier.height(2.dp))
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = color)
+        FitText(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = color, minFontSize = 10.sp)
     }
 }

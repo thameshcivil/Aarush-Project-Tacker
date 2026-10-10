@@ -288,7 +288,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                 AppCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         SectionLabel(if (activeDirection == TransactionDirection.EXPENSE) "Total spent" else "Total received", modifier = Modifier.weight(1f))
-                        Text(formatCurrency(filtered.sumOf { it.totalAmount }), style = com.aarush.cpm.ui.theme.FigureStyle)
+                        com.aarush.cpm.ui.common.FitText(formatCurrency(filtered.sumOf { it.totalAmount }), style = com.aarush.cpm.ui.theme.FigureStyle)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -458,7 +458,7 @@ private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold)
-                    Text(formatCurrency(expense.totalAmount), style = com.aarush.cpm.ui.theme.FigureStyle, color = SiteTheme.colors.good)
+                    com.aarush.cpm.ui.common.FitText(formatCurrency(expense.totalAmount), style = com.aarush.cpm.ui.theme.FigureStyle, color = SiteTheme.colors.good)
                     if (expense.itemOrMaterialName.isNotBlank()) Text(expense.itemOrMaterialName, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")

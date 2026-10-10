@@ -85,9 +85,11 @@ data class SiteColors(
 private val LightSite = SiteColors(
     accent = AarushGold, accentTint = AarushGoldTint, accentText = Color(0xFF6E4E10),
     planned = AarushMaroon, plannedTint = Color(0xFFF3DEDA),
-    good = Color(0xFF2E7D4F), goodTint = Color(0xFFDDEFE3),
-    bad = Color(0xFFD32F2F), badTint = Color(0xFFFBE0DE),
-    warn = Color(0xFFD9701F),
+    // Status shades darkened (same hues) so text meets WCAG AA 4.5:1 on its pill tint and on
+    // cards: good 5.4:1 on tint, bad 5.3:1, warn 5.3:1 on sheet. Brand maroon/gold unchanged.
+    good = Color(0xFF276B44), goodTint = Color(0xFFDDEFE3),
+    bad = Color(0xFFB71C1C), badTint = Color(0xFFFBE0DE),
+    warn = Color(0xFFA85310),
     hairline = Hairline, muted = InkMuted, sheet = Sheet,
     maroon = AarushMaroon, gold = AarushGold
 )
@@ -129,7 +131,7 @@ private val LightColors = lightColorScheme(
     surfaceContainerHighest = Color(0xFFF3EBDD),
     outline = Color(0xFFBFAE97),
     outlineVariant = Hairline,
-    error = Color(0xFFD32F2F),
+    error = Color(0xFFB71C1C),
     errorContainer = Color(0xFFFBE0DE)
 )
 

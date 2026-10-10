@@ -20,7 +20,11 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,7 +62,8 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
     val end = (listOfNotNull(report.baselineFinish, report.forecastFinish) + acts.map { it.tracking.forecastFinish }).max().plusDays(10)
     val days = ChronoUnit.DAYS.between(start, end).toInt() + 1
 
-    val labelW = 150.dp
+    // Wider than before so a floor code plus the activity name fit (e.g. "1F  Beams & roof slab").
+    val labelW = 172.dp
     val rowH = 30.dp
     val headerH = 36.dp
     val dayW = dayWidthDp.dp
@@ -68,10 +73,19 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
     val labelWpx = with(density) { labelW.toPx() }
     val nameStyle = TextStyle(fontSize = 11.sp, color = ink)
     val smallStyle = TextStyle(fontSize = 10.sp, color = colors.muted)
-    val names = remember(acts, ink) {
+    val floorStyle = SpanStyle(color = colors.maroon, fontWeight = FontWeight.Bold)
+    val names = remember(acts, ink, floorStyle) {
         acts.map {
+            // Floor code first (bold, brand maroon) so rows for different floors are told apart
+            // even when the end of a long name is cut off; then the activity name without the
+            // repeated " — <floor>" suffix. Display only — stored names are unchanged.
+            val code = floorCode(it.activity.floorLabel)
+            val label = buildAnnotatedString {
+                if (code.isNotEmpty()) { withStyle(floorStyle) { append(code) }; append("  ") }
+                append(activityBaseName(it.activity.activityName, it.activity.floorLabel))
+            }
             measurer.measure(
-                it.activity.activityName, nameStyle, overflow = TextOverflow.Ellipsis, maxLines = 1,
+                label, nameStyle, overflow = TextOverflow.Ellipsis, maxLines = 1,
                 constraints = Constraints(maxWidth = (labelWpx - with(density) { 18.dp.toPx() }).toInt().coerceAtLeast(1))
             )
         }
@@ -224,4 +238,36 @@ fun SCurveChart(points: List<SCurvePoint>, today: LocalDate, modifier: Modifier 
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
         }
     }
+}
+
+// ------------------------------------------------------------------ floor labelling (display only)
+
+/** Short code for a floor tag: Ground Floor → GF, First Floor → 1F, Foundation → FDN, Terrace → TER.
+ *  Unknown custom tags fall back to their first letters; blank stays blank. */
+internal fun floorCode(floorLabel: String): String {
+    val f = floorLabel.trim()
+    if (f.isEmpty()) return ""
+    val ordinals = listOf("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
+    val lower = f.lowercase()
+    return when {
+        lower == "ground floor" || lower == "ground" -> "GF"
+        lower == "foundation" -> "FDN"
+        lower == "plinth" -> "PLN"
+        lower == "terrace" -> "TER"
+        lower.endsWith(" floor") && lower.removeSuffix(" floor") in ordinals ->
+            "${ordinals.indexOf(lower.removeSuffix(" floor")) + 1}F"
+        lower.startsWith("floor ") && lower.removePrefix("floor ").toIntOrNull() != null ->
+            "${lower.removePrefix("floor ").toInt()}F"
+        else -> f.split(" ").filter { it.isNotBlank() }.joinToString("") { it.take(1) }.uppercase().take(4)
+    }
+}
+
+/** Activity name without a trailing " — <floor>" (or " - <floor>") when the floor is shown separately. */
+internal fun activityBaseName(name: String, floorLabel: String): String {
+    val f = floorLabel.trim()
+    if (f.isEmpty()) return name
+    for (sep in listOf(" — ", " – ", " - ")) {
+        if (name.endsWith(sep + f, ignoreCase = true)) return name.dropLast(sep.length + f.length).ifBlank { name }
+    }
+    return name
 }

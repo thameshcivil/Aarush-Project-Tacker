@@ -8,7 +8,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,13 +64,50 @@ fun StatTile(
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             SectionLabel(label)
             Spacer(Modifier.height(6.dp))
-            Text(value, style = FigureStyle, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            FitText(value, style = FigureStyle, color = valueColor)
             caption?.let {
                 Spacer(Modifier.height(2.dp))
                 Text(it, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted, maxLines = 2)
             }
         }
     }
+}
+
+/**
+ * Single-line text that shrinks its font until it fits the available width, so figures such
+ * as currency amounts are never cut off with "…". If even [minFontSize] does not fit (very
+ * narrow screens, huge amounts), it wraps instead of truncating. The text is drawn only once
+ * its final size is known, so there is no visible flicker while it measures.
+ */
+@Composable
+fun FitText(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+    minFontSize: androidx.compose.ui.unit.TextUnit = 11.sp
+) {
+    val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    var scaled by remember(text, style, screenWidth) { mutableStateOf(style) }
+    var wrap by remember(text, style, screenWidth) { mutableStateOf(false) }
+    var ready by remember(text, style, screenWidth) { mutableStateOf(false) }
+    Text(
+        text,
+        modifier = modifier.drawWithContent { if (ready) drawContent() },
+        style = scaled,
+        color = color,
+        fontWeight = fontWeight,
+        maxLines = if (wrap) 3 else 1,
+        softWrap = wrap,
+        onTextLayout = { result ->
+            if (!wrap && result.didOverflowWidth && scaled.fontSize.isSp) {
+                val next = scaled.fontSize * 0.92f
+                if (next.value >= minFontSize.value) scaled = scaled.copy(fontSize = next)
+                else { wrap = true; ready = true }
+            } else ready = true
+        }
+    )
 }
 
 /** One "label ........ value" line of a ledger, with an optional hairline under it. */
