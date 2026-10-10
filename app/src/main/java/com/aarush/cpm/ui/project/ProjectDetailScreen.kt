@@ -39,7 +39,12 @@ data class ProjectDetailUiState(
     val schedule: ScheduleReport? = null,
     val areaComponents: List<ProjectAreaComponent> = emptyList(),
     val daysRemaining: Long? = null,
-    val isLoading: Boolean = true
+    /** True only for the very first load (nothing to show yet): the screen shows a skeleton. */
+    val isLoading: Boolean = true,
+    /** True while existing figures are being re-read: they stay on screen under a thin bar. */
+    val isRefreshing: Boolean = false,
+    /** Set when reading the project failed; the screen offers Retry. */
+    val error: String? = null
 )
 
 class ProjectDetailViewModel(
@@ -67,8 +72,27 @@ class ProjectDetailViewModel(
     fun load(projectId: Long) {
         currentProjectId = projectId
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = _uiState.value.summary == null)
+            val hasData = _uiState.value.summary != null
+            _uiState.value = _uiState.value.copy(isLoading = !hasData, isRefreshing = hasData, error = null)
+            refreshSafely()
+        }
+    }
+
+    /** Retry after a failed load; keeps whatever is already on screen. */
+    fun retry() = load(currentProjectId)
+
+    /** Same reads as before; a failure now ends in an error state with Retry instead of an
+     *  endless spinner, and the previous figures (if any) are kept. */
+    private suspend fun refreshSafely() {
+        try {
             refresh()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isLoading = false, isRefreshing = false,
+                error = "Couldn't read this project's figures. ${e.message ?: ""}".trim()
+            )
         }
     }
 
@@ -87,17 +111,17 @@ class ProjectDetailViewModel(
     }
 
     fun addAreaComponent(label: String, area: Double, rate: Double) {
-        viewModelScope.launch { projectRepository.addAreaComponent(currentProjectId, label, area, rate); refresh() }
+        viewModelScope.launch { projectRepository.addAreaComponent(currentProjectId, label, area, rate); refreshSafely() }
     }
 
     fun updateAreaComponent(component: ProjectAreaComponent, label: String, area: Double, rate: Double) {
         viewModelScope.launch {
-            projectRepository.updateAreaComponent(component.copy(label = label, areaSqft = area, ratePerSqft = rate)); refresh()
+            projectRepository.updateAreaComponent(component.copy(label = label, areaSqft = area, ratePerSqft = rate)); refreshSafely()
         }
     }
 
     fun deleteAreaComponent(component: ProjectAreaComponent) {
-        viewModelScope.launch { projectRepository.deleteAreaComponent(component); refresh() }
+        viewModelScope.launch { projectRepository.deleteAreaComponent(component); refreshSafely() }
     }
 }
 
@@ -116,96 +140,37 @@ fun ProjectHomeTabContent(
     var pendingDeleteComponent by remember { mutableStateOf<ProjectAreaComponent?>(null) }
     val scope = rememberCoroutineScope()
 
-    if (state.isLoading || state.summary == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SiteTheme.colors.accent) }
-        return
+    val summary = state.summary
+    when {
+        summary == null && state.error != null -> { ErrorState(message = state.error!!, onRetry = viewModel::retry); return }
+        summary == null && state.isLoading -> { SkeletonScreen(headline = true, sections = 3, rows = 4); return }
+        summary == null -> {
+            ErrorState(title = "Project not found", message = "This project may have been deleted.", onRetry = viewModel::retry)
+            return
+        }
     }
-    val summary = state.summary!!
-    val p = summary.project
+    val s = summary!!
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            AppCard(onClick = { showAreaDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        SectionLabel("Project value · Budget 1", modifier = Modifier.weight(1f))
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit area & rate", tint = SiteTheme.colors.muted, modifier = Modifier.size(16.dp))
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    FitText(formatCurrency(p.projectValue), style = FigureStyle.copy(fontSize = FigureStyle.fontSize * 1.25f))
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "${formatQuantity(p.plinthAreaSqft, "sqft")} @ ${formatCurrency(p.ratePerSqft)}/sqft · ${p.projectType} · ${p.numberOfFloors} floor${if (p.numberOfFloors == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
-                    )
-                    Text(
-                        listOf(p.clientName, p.location).filter { it.isNotBlank() }.joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
-                    )
-                }
+    Column(Modifier.fillMaxSize()) {
+        RefreshBar(visible = state.isRefreshing)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            state.error?.let { msg -> item { ErrorBanner(msg, onRetry = viewModel::retry) } }
+            item { ProjectValueHeader(s.project, onEditAreaRate = { showAreaDialog = true }) }
+            item { MoneySummaryTable(s) }
+            item {
+                TimeProgressTable(s.progressPercent, state.daysRemaining, hasSchedule = state.schedule?.hasSchedule == true)
             }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val tile = Modifier.fillMaxHeight()
-                StatRow {
-                    StatTile("Received", formatCurrencyShort(summary.totalReceived), tile.weight(1f))
-                    StatTile("Spent", formatCurrencyShort(summary.totalSpent), tile.weight(1f))
-                }
-                StatRow {
-                    StatTile("Cash balance", formatCurrencyShort(summary.cashBalance), tile.weight(1f),
-                        valueColor = if (summary.cashBalance < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
-                        caption = "Received − spent")
-                    // Same figure as before (value − spent); labelled literally, neutral unless negative.
-                    StatTile("Value − spent", formatCurrencyShort(summary.profit), tile.weight(1f),
-                        valueColor = if (summary.profit < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
-                        caption = "${formatPercent(summary.profitPercent)} of value")
-                }
-                StatRow {
-                    StatTile("Progress", formatPercent(summary.progressPercent), tile.weight(1f))
-                    StatTile("Days left", state.daysRemaining?.let { if (it < 0) "${-it} over" else "$it" } ?: NO_VALUE, tile.weight(1f),
-                        valueColor = if ((state.daysRemaining ?: 0) < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
-                        caption = if (state.schedule?.hasSchedule == true) "to forecast handover" else "to expected completion")
-                    StatTile("Client due", formatCurrencyShort(summary.clientBalance), tile.weight(1f), caption = "Value − received")
-                }
+            state.schedule?.let { r -> item { ScheduleHealthCard(r, onOpenSchedule) } }
+            state.schedule?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
+                item { AlertsCard(alerts) }
             }
+            state.budgetComparison?.let { bc -> item { BudgetComparisonTable(bc) } }
+            item { CategoryBudgetTable(s.categories) }
         }
-        state.schedule?.let { r -> item { ScheduleHealthCard(r, onOpenSchedule) } }
-        state.schedule?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
-            item { AlertsCard(alerts) }
-        }
-        state.budgetComparison?.let { bc -> item { BudgetComparisonCard(bc) } }
-        item { SectionLabel("Budget vs actual by category", modifier = Modifier.padding(top = 4.dp)) }
-        items(summary.categories, key = { it.allocation.category.name }) { cat ->
-            AppCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(cat.allocation.category.name.replace("_", " "), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                        SectionLabel("${formatPercent(cat.allocation.percentOfProjectValue)} of value")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    ProgressRail(
-                        progress = if (cat.budget > 0) (cat.actual / cat.budget).toFloat() else 0f,
-                        color = if (cat.variance < 0) SiteTheme.colors.bad else SiteTheme.colors.accent
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        Text("Actual ${formatCurrencyShort(cat.actual)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                        Text("Budget ${formatCurrencyShort(cat.budget)}", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
-                    }
-                    if (cat.variance < 0) {
-                        Text("Over budget by ${formatCurrency(-cat.variance)}", color = SiteTheme.colors.bad, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("Remaining ${formatCurrency(cat.remaining)}", color = SiteTheme.colors.muted, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-        item { Spacer(Modifier.height(16.dp)) }
     }
 
     if (showAreaDialog) {
@@ -396,38 +361,6 @@ private fun AreaRateEditableRow(
                 Text("Subtotal: ${formatCurrency(CalculationEngine.projectValue(a, r))}", style = MaterialTheme.typography.labelSmall)
                 TextButton(onClick = { if (a > 0 && r > 0) onUpdate(component, label.ifBlank { "Area" }, a, r) }, enabled = changed && a > 0 && r > 0) { Text("Save") }
             }
-        }
-    }
-}
-
-@Composable
-private fun BudgetComparisonCard(bc: BudgetComparison) {
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            SectionLabel("Budget 1 vs Budget 2")
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Budget 1 · plinth area", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
-                    FitText(formatCurrencyShort(bc.budget1), style = FigureStyle)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Budget 2 · measured", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
-                    FitText(formatCurrencyShort(bc.budget2), style = FigureStyle, color = SiteTheme.colors.planned)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            MetricRow("Civil material (BOQ × coefficients × rates)", formatCurrency(bc.civilMaterialCost))
-            MetricRow("Civil labour (vendor contracts)", formatCurrency(bc.civilLabourCost))
-            MetricRow("MEP / Painting / Joinery / Tiling / Other (% of Budget 1)", formatCurrency(bc.otherCategoriesTotal), divider = true)
-            Spacer(Modifier.height(6.dp))
-            MetricRow("Expense so far", formatCurrency(bc.actualExpense))
-            MetricRow(
-                if (bc.costControlVariance < 0) "Budget 2 exceeded by" else "Budget 2 remaining",
-                formatCurrency(kotlin.math.abs(bc.costControlVariance)),
-                valueColor = if (bc.costControlVariance < 0) SiteTheme.colors.bad else SiteTheme.colors.good
-            )
-            MetricRow("Budget 1 − expense (expected profit)", formatCurrency(bc.expectedProfit), emphasize = true)
         }
     }
 }

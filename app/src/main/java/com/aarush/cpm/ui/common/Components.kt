@@ -191,13 +191,15 @@ fun ProgressRail(
     modifier: Modifier = Modifier,
     color: Color = SiteTheme.colors.accent,
     plannedMarker: Float? = null,
-    height: Dp = 6.dp
+    height: Dp = 6.dp,
+    /** What TalkBack says; defaults to "x% done, y% planned". */
+    spokenDescription: String? = null
 ) {
     val track = SiteTheme.colors.hairline
     val markerColor = SiteTheme.colors.planned
     val halo = SiteTheme.colors.sheet
-    val spoken = "${(progress.coerceIn(0f, 1f) * 100).roundToInt()}% done" +
-        (plannedMarker?.let { ", ${(it.coerceIn(0f, 1f) * 100).roundToInt()}% planned" } ?: "")
+    val spoken = spokenDescription ?: ("${(progress.coerceIn(0f, 1f) * 100).roundToInt()}% done" +
+        (plannedMarker?.let { ", ${(it.coerceIn(0f, 1f) * 100).roundToInt()}% planned" } ?: ""))
     BoxWithConstraints(
         modifier.fillMaxWidth().height(height + 6.dp).semantics { contentDescription = spoken },
         contentAlignment = Alignment.CenterStart
