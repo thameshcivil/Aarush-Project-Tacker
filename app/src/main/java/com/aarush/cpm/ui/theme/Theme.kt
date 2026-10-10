@@ -31,8 +31,17 @@ import androidx.core.view.WindowCompat
  *  - Maroon is the STRUCTURE colour: primary buttons, FABs, wordmark, headings rule.
  *  - Gold is the ACCENT: progress, the active tab, highlights, the brand rule. Used
  *    sparingly, as in the logo.
- *  - Planned/baseline is shown in maroon against gold "actual"; status colours (green good,
- *    vivid red bad, orange warn) are kept distinct from both brand hues.
+ *  - Planned/baseline is a dark NEUTRAL (outline or tick) against gold "actual"; status
+ *    colours (green good, red bad = delayed / over budget, orange warn) are kept distinct.
+ *
+ * Colour roles (redesign rule, keep to these):
+ *    maroon  -> brand identity and primary actions only
+ *    gold    -> actual / achieved progress only
+ *    planned -> baseline / planned marks only (dark neutral)
+ *    bad     -> delayed or over-budget status only
+ *
+ * Shape rule: tags 4dp, buttons / inputs / chips / menus 6dp, cards / dialogs / sheets 8dp,
+ * progress bars 2dp. Every button passes shapes.small so none fall back to M3's pill shape.
  */
 
 // ---- Brand
@@ -66,7 +75,8 @@ data class SiteColors(
     val accentTint: Color,
     /** Dark gold for TEXT on accentTint (bright gold text there would be illegible). */
     val accentText: Color,
-    /** Planned / baseline marks — brand maroon. */
+    /** Planned / baseline marks: a dark neutral, so it never competes with brand maroon or
+     *  with red "delayed / over budget". */
     val planned: Color,
     val plannedTint: Color,
     val good: Color,
@@ -84,7 +94,7 @@ data class SiteColors(
 
 private val LightSite = SiteColors(
     accent = AarushGold, accentTint = AarushGoldTint, accentText = Color(0xFF6E4E10),
-    planned = AarushMaroon, plannedTint = Color(0xFFF3DEDA),
+    planned = Color(0xFF3D3431), plannedTint = Color(0xFFECE6DF),
     // Status shades darkened (same hues) so text meets WCAG AA 4.5:1 on its pill tint and on
     // cards: good 5.4:1 on tint, bad 5.3:1, warn 5.3:1 on sheet. Brand maroon/gold unchanged.
     good = Color(0xFF276B44), goodTint = Color(0xFFDDEFE3),
@@ -95,7 +105,7 @@ private val LightSite = SiteColors(
 )
 private val DarkSite = SiteColors(
     accent = AarushGoldBright, accentTint = Color(0xFF3A2B12), accentText = Color(0xFFF2CF77),
-    planned = Color(0xFFE07A6E), plannedTint = Color(0xFF3A1A17),
+    planned = Color(0xFFD8CCC4), plannedTint = Color(0xFF2E2624),
     good = Color(0xFF5BBE85), goodTint = Color(0xFF173025),
     bad = Color(0xFFFF6B60), badTint = Color(0xFF3F1A18),
     warn = Color(0xFFF0A050),
@@ -189,14 +199,18 @@ private val AppTypography = Typography().let { t ->
     )
 }
 
-/** Squared, architectural corners — echoing the sharp geometry of the logo's "A". */
+/** Squared, architectural corners echoing the logo's "A". One scale for the whole app:
+ *  inputs, menus, snackbars, chips and buttons 6dp; cards, FABs, dialogs and sheets 8dp.
+ *  Tags (StatusPill) use [TagShape]; progress bars use [RailShape]. */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
+    extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(6.dp),
-    medium = RoundedCornerShape(10.dp),
-    large = RoundedCornerShape(12.dp),
-    extraLarge = RoundedCornerShape(16.dp)
+    medium = RoundedCornerShape(8.dp),
+    large = RoundedCornerShape(8.dp),
+    extraLarge = RoundedCornerShape(8.dp)
 )
+val TagShape = RoundedCornerShape(4.dp)
+val RailShape = RoundedCornerShape(2.dp)
 
 @Composable
 fun AarushCPMTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {

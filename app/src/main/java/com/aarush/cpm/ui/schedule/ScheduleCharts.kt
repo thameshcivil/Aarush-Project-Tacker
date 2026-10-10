@@ -73,7 +73,8 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
     val labelWpx = with(density) { labelW.toPx() }
     val nameStyle = TextStyle(fontSize = 11.sp, color = ink)
     val smallStyle = TextStyle(fontSize = 10.sp, color = colors.muted)
-    val floorStyle = SpanStyle(color = colors.maroon, fontWeight = FontWeight.Bold)
+    // Floor code in bold ink (maroon is reserved for brand and primary actions).
+    val floorStyle = SpanStyle(color = ink, fontWeight = FontWeight.Bold)
     val names = remember(acts, ink, floorStyle) {
         acts.map {
             // Floor code first (bold, brand maroon) so rows for different floors are told apart

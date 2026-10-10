@@ -173,7 +173,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
             com.aarush.cpm.ui.common.SectionLabel("Area & rate breakdown")
             Spacer(Modifier.height(4.dp))
             Text(
-                "Add a row for each part of the build with its own rate — e.g. Residence, Staircase, Portico.",
+                "Add a row for each part of the build with its own rate, e.g. Residence, Staircase, Portico.",
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(8.dp))
@@ -223,7 +223,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                 }
             }
 
-            OutlinedButton(onClick = { viewModel.addAreaRow() }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { viewModel.addAreaRow() }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Spacer(Modifier.width(4.dp))
                 Text("Add another area / rate")

@@ -167,7 +167,7 @@ fun ProjectHomeTabContent(
                 }
                 StatRow {
                     StatTile("Progress", formatPercent(summary.progressPercent), tile.weight(1f))
-                    StatTile("Days left", state.daysRemaining?.let { if (it < 0) "${-it} over" else "$it" } ?: "—", tile.weight(1f),
+                    StatTile("Days left", state.daysRemaining?.let { if (it < 0) "${-it} over" else "$it" } ?: NO_VALUE, tile.weight(1f),
                         valueColor = if ((state.daysRemaining ?: 0) < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified,
                         caption = if (state.schedule?.hasSchedule == true) "to forecast handover" else "to expected completion")
                     StatTile("Client due", formatCurrencyShort(summary.clientBalance), tile.weight(1f), caption = "Value − received")
@@ -256,16 +256,16 @@ private fun ScheduleHealthCard(r: ScheduleReport, onOpenSchedule: () -> Unit) {
             ProgressRail(progress = (ev.actualPercent / 100).toFloat(), plannedMarker = (ev.plannedPercent / 100).toFloat(), height = 8.dp)
             Spacer(Modifier.height(10.dp))
             val delayColor = if (r.projectDelayDays > 0) SiteTheme.colors.bad else SiteTheme.colors.good
-            MetricRow("Forecast handover", r.forecastFinish?.let { formatDate(it) } ?: "—")
+            MetricRow("Forecast handover", r.forecastFinish?.let { formatDate(it) } ?: NO_VALUE)
             MetricRow("Against baseline",
                 when {
                     r.projectDelayDays > 0 -> "${r.projectDelayDays} working days late"
                     r.projectDelayDays < 0 -> "${-r.projectDelayDays} working days early"
                     else -> "On time"
                 }, valueColor = delayColor)
-            MetricRow("Schedule index (SPI)", ev.spi?.let { "%.2f".format(it) } ?: "—",
+            MetricRow("Schedule index (SPI)", ev.spi?.let { "%.2f".format(it) } ?: NO_VALUE,
                 valueColor = ev.spi?.let { if (it < 0.95) SiteTheme.colors.bad else SiteTheme.colors.good } ?: androidx.compose.ui.graphics.Color.Unspecified)
-            MetricRow("Cost index (CPI)", ev.cpi?.let { "%.2f".format(it) } ?: "—",
+            MetricRow("Cost index (CPI)", ev.cpi?.let { "%.2f".format(it) } ?: NO_VALUE,
                 valueColor = ev.cpi?.let { if (it < 0.95) SiteTheme.colors.bad else SiteTheme.colors.good } ?: androidx.compose.ui.graphics.Color.Unspecified)
             MetricRow("Activities", "${r.completedCount} done · ${r.inProgressCount} running · ${r.delayedCount} delayed")
             }
@@ -287,7 +287,7 @@ internal fun AlertsCard(alerts: List<ScheduleAlert>, max: Int = 6) {
                     )
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        SectionLabel(a.type.name.replace('_', ' '))
+                        SectionLabel(humanizeLabel(a.type.name))
                         Text(a.message, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -341,8 +341,8 @@ private fun AreaRateBreakdownDialog(
                     }
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { showAddForm = false; newLabel = ""; newArea = ""; newRate = "" }, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                        Button(
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { showAddForm = false; newLabel = ""; newArea = ""; newRate = "" }, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                        Button(shape = MaterialTheme.shapes.small, 
                             onClick = {
                                 val area = newArea.toDoubleOrNull() ?: 0.0
                                 val rate = newRate.toDoubleOrNull() ?: 0.0

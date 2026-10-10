@@ -541,12 +541,12 @@ private fun AddEditMaterialExpenseDialog(
         title = { Text(if (existing == null) "Add expense" else "Edit expense") },
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
-                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Date: ${formatDate(dateMillis)}")
                 }
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Mode of payment: ${paymentMode.name}") }
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Mode of payment: ${paymentMode.name}") }
                     DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
                         PaymentMode.values().forEach { m -> DropdownMenuItem(text = { Text(m.name) }, onClick = { paymentMode = m; modeMenu = false }) }
                     }
@@ -554,7 +554,7 @@ private fun AddEditMaterialExpenseDialog(
                 Spacer(Modifier.height(6.dp))
                 if (materialRates.isNotEmpty()) {
                     Box {
-                        OutlinedButton(onClick = { materialMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { materialMenu = true }, modifier = Modifier.fillMaxWidth()) {
                             Text(materialName.ifBlank { "List of material" })
                         }
                         DropdownMenu(expanded = materialMenu, onDismissRequest = { materialMenu = false }) {
@@ -577,11 +577,11 @@ private fun AddEditMaterialExpenseDialog(
                 Spacer(Modifier.height(6.dp))
                 if (!isVendorLine) {
                     Box {
-                        OutlinedButton(onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
                             Text("Category: ${categoryOverride?.name?.replace('_', ' ') ?: "Auto" + (existing?.let { " (${it.category.name.replace('_', ' ')})" } ?: "")}")
                         }
                         DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
-                            DropdownMenuItem(text = { Text("Auto — from BOQ / material name") }, onClick = { categoryOverride = null; categoryMenu = false })
+                            DropdownMenuItem(text = { Text("Auto (from BOQ / material name)") }, onClick = { categoryOverride = null; categoryMenu = false })
                             CostCategory.values().forEach { c ->
                                 DropdownMenuItem(text = { Text(c.name.replace('_', ' ')) }, onClick = { categoryOverride = c; categoryMenu = false })
                             }
@@ -647,7 +647,7 @@ private fun AddEditMaterialExpenseDialog(
                 if (!isVendorLine) {
                     Spacer(Modifier.height(10.dp))
                     if (!showFreightField) {
-                        OutlinedButton(onClick = { showFreightField = true }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { showFreightField = true }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.Add, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
                             Text("Add Freight & Unloading Charges")
@@ -741,12 +741,12 @@ private fun AddEditReceivedDialog(
         title = { Text(if (existing == null) "Add received amount" else "Edit received amount") },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Date: ${formatDate(dateMillis)}")
                 }
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Mode of payment: ${paymentMode.name}") }
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { modeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Mode of payment: ${paymentMode.name}") }
                     DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
                         PaymentMode.values().forEach { m -> DropdownMenuItem(text = { Text(m.name) }, onClick = { paymentMode = m; modeMenu = false }) }
                     }

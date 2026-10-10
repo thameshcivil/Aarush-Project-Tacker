@@ -80,7 +80,7 @@ class LoginViewModel(
     /** Accounts are local to this device (no server to email a reset link from). */
     fun showForgotPasswordInfo() {
         _uiState.value = _uiState.value.copy(error = "Accounts are stored only on this device, so a reset link can't be emailed. " +
-            "Use Sign in with Google or biometrics if set up, or create a new account — your projects stay on the device.")
+            "Use Sign in with Google or biometrics if set up, or create a new account. Your projects stay on the device.")
     }
 
     private suspend fun rememberOrForget(email: String, rememberMe: Boolean) {
@@ -203,7 +203,7 @@ fun LoginScreen(viewModel: LoginViewModel, onLoginSuccess: () -> Unit) {
                         Text("Welcome back", style = MaterialTheme.typography.titleMedium)
                         Text(state.rememberedEmail!!, style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(12.dp))
-                        Button(
+                        Button(shape = MaterialTheme.shapes.small, 
                             onClick = { viewModel.loginWithBiometrics(activity, onLoginSuccess) },
                             enabled = !state.isLoading,
                             modifier = Modifier.fillMaxWidth()

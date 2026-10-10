@@ -280,7 +280,7 @@ internal fun ActivityDetailSheet(
             MetricRow("Budget", formatCurrency(view.budget) + if (a.budgetOverride != null) " (manual)" else "")
             if (view.materialCost > 0) MetricRow("of which BOQ materials", formatCurrency(view.materialCost))
             MetricRow("Earned value", formatCurrency(view.earnedValue))
-            MetricRow("Labour", "${a.requiredLabourCount} × ${a.requiredLabourSkill.ifBlank { "—" }}", divider = true)
+            MetricRow("Labour", "${a.requiredLabourCount} × ${a.requiredLabourSkill.ifBlank { NO_VALUE }}", divider = true)
 
             if (view.predecessors.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))

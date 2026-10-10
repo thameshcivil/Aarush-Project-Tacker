@@ -287,7 +287,7 @@ class ProjectSettingsViewModel(
                 nameRenames
             )
             reload()
-            _uiState.value = _uiState.value.copy(isSaving = false, savedMessage = "Saved — BOQ, schedule and expenses keep their links")
+            _uiState.value = _uiState.value.copy(isSaving = false, savedMessage = "Saved. BOQ, schedule and expenses keep their links.")
         }
     }
 }
@@ -472,7 +472,7 @@ private fun CoefficientsTab(state: ProjectSettingsUiState, viewModel: ProjectSet
             AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     SectionLabel("Add a material column")
-                    Text("e.g. \"Tile adhesive\" or \"40mm Aggregate\" — use the same name as in the rate card so it gets priced.",
+                    Text("e.g. \"Tile adhesive\" or \"40mm Aggregate\" Use the same name as in the rate card so it gets priced.",
                         style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(newMaterial, { newMaterial = it }, label = { Text("Material name") }, singleLine = true, modifier = Modifier.weight(1f))

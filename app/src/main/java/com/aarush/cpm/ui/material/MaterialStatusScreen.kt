@@ -100,9 +100,9 @@ private fun PurchaseHistoryDialog(row: MaterialStatusRow, onDismiss: () -> Unit)
                         style = MaterialTheme.typography.bodySmall)
                 } else {
                     Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                        SectionLabel("Date", modifier = Modifier.weight(1f))
-                        SectionLabel("Qty", modifier = Modifier.weight(1f))
-                        SectionLabel(if (row.isVendorLinked) "Paid" else "Spend")
+                        ColumnLabel("Date", modifier = Modifier.weight(1f))
+                        ColumnLabel("Qty", modifier = Modifier.weight(1f))
+                        ColumnLabel(if (row.isVendorLinked) "Paid" else "Spend")
                     }
                     HorizontalDivider(color = SiteTheme.colors.hairline)
                     LazyColumn(Modifier.weight(1f, fill = false)) {
@@ -110,7 +110,7 @@ private fun PurchaseHistoryDialog(row: MaterialStatusRow, onDismiss: () -> Unit)
                             val entry = row.purchaseHistory[index]
                             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                                 Text(formatDate(entry.date), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                                Text(if (row.isVendorLinked) "—" else formatQuantity(entry.quantity, row.unit),
+                                Text(if (row.isVendorLinked) NO_VALUE else formatQuantity(entry.quantity, row.unit),
                                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                                 Text(formatCurrency(entry.amount), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                             }
@@ -164,7 +164,7 @@ private fun MaterialStatusCard(row: MaterialStatusRow, onClick: () -> Unit) {
                 else -> {
                     MetricRow("Purchased", formatQuantity(row.purchasedQuantity, row.unit))
                     MetricRow("Spent", formatCurrency(row.expensedAmount), emphasize = true)
-                    Text("Not measured in the BOQ — budgeted under its cost category.", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                    Text("Not measured in the BOQ. Budgeted under its cost category.", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                 }
             }
         }

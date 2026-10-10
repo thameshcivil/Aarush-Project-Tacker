@@ -56,3 +56,7 @@ fun storedMillisFromPicker(pickerMillis: Long): Long =
 
 fun pickerMillisFromDate(date: LocalDate): Long = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 fun dateFromPickerMillis(pickerMillis: Long): LocalDate = Instant.ofEpochMilli(pickerMillis).atZone(ZoneOffset.UTC).toLocalDate()
+
+/** Shown where a figure has no value yet (no schedule, no index). A plain hyphen: the app's
+ *  copy rule avoids em-dashes. */
+const val NO_VALUE = "-"

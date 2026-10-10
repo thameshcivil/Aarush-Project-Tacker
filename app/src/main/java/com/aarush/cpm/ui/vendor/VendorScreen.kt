@@ -45,6 +45,7 @@ import com.aarush.cpm.ui.common.MetricRow
 import com.aarush.cpm.ui.common.ProgressRail
 import com.aarush.cpm.ui.common.SectionLabel
 import com.aarush.cpm.ui.common.StatusPill
+import com.aarush.cpm.ui.common.humanizeLabel
 import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -135,7 +136,7 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
 
     Box(Modifier.fillMaxSize()) {
         if (vendors.isEmpty()) {
-            EmptyState("No vendors yet", "Add your civil contractor, electrician, plumber, painter… Each vendor gets a \"Labour Cost for <name>\" line in the Expense form — that's how payments are logged and tracked against the contract.")
+            EmptyState("No vendors yet", "Add your civil contractor, electrician, plumber, painter… Each vendor gets a \"Labour Cost for <name>\" line in the Expense form. That's how payments are logged and tracked against the contract.")
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
@@ -197,7 +198,7 @@ private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Un
         Column(Modifier.padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    SectionLabel("${vendor.workCategory.name} · ${vendor.rateType.name.replace("_", " ")}")
+                    SectionLabel(humanizeLabel("${vendor.workCategory.name} · ${vendor.rateType.name}"))
                     Text(vendor.name, style = MaterialTheme.typography.titleSmall)
                     if (vendor.contact.isNotBlank()) Text(vendor.contact, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                 }
@@ -222,7 +223,7 @@ private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Un
                 Spacer(Modifier.height(4.dp))
                 if (payments.isEmpty()) {
                     Text(
-                        "No payments logged yet — pick \"Labour Cost for ${vendor.name}\" in the Expense tab's material list to log one.",
+                        "No payments logged yet. Pick \"Labour Cost for ${vendor.name}\" in the Expense tab's material list to log one.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
@@ -287,7 +288,7 @@ private fun AddEditVendorDialog(
                 OutlinedTextField(contact, { contact = it }, label = { Text("Contact") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { wcMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Category: ${workCategory.name}") }
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { wcMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Category: ${workCategory.name}") }
                     DropdownMenu(expanded = wcMenu, onDismissRequest = { wcMenu = false }) {
                         VendorWorkCategory.values().forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { workCategory = c; wcMenu = false }) }
                     }
@@ -301,7 +302,7 @@ private fun AddEditVendorDialog(
                 }
                 Spacer(Modifier.height(4.dp))
                 Box {
-                    OutlinedButton(onClick = { rtMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Other basis: ${rateType.name.replace("_", " ")}") }
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { rtMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Other basis: ${rateType.name.replace("_", " ")}") }
                     DropdownMenu(expanded = rtMenu, onDismissRequest = { rtMenu = false }) {
                         VendorRateType.values().forEach { r -> DropdownMenuItem(text = { Text(r.name.replace("_", " ")) }, onClick = { rateType = r; rtMenu = false }) }
                     }

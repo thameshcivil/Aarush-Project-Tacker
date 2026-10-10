@@ -29,7 +29,7 @@ object GoogleSignInHelper {
             return Result.failure(
                 IllegalStateException(
                     "Google Sign-In isn't configured yet. Add your OAuth Web Client ID to " +
-                        "res/values/strings.xml (google_web_client_id) — see README 'Setting up Google Sign-In'."
+                        "res/values/strings.xml (google_web_client_id). See README 'Setting up Google Sign-In'."
                 )
             )
         }

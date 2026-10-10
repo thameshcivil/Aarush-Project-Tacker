@@ -112,7 +112,7 @@ class ScheduleViewModel(
     fun deleteSchedule() = run("Schedule deleted") { scheduleRepository.deleteSchedule(projectId) }
 
     fun logProgress(activityId: Long, date: LocalDate, qty: Double, percent: Double?, labour: Int, notes: String) =
-        run("Progress logged — stock and earned value updated") {
+        run("Progress logged. Stock and earned value updated.") {
             scheduleRepository.logProgress(activityId, date, qty, percent, labour, notes)
         }
 
@@ -166,7 +166,7 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
         viewModel.deleteLog(log)
         scope.launch {
             val result = snackbarHostState.showSnackbar(
-                message = if (booked) "Progress entry removed — materials returned to stock" else "Progress entry removed",
+                message = if (booked) "Progress entry removed. Materials returned to stock." else "Progress entry removed",
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Long
             )
@@ -191,7 +191,7 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
         if (!report.hasSchedule) {
             EmptyState(
                 title = "No construction schedule yet",
-                body = "Generate the complete residential schedule — approvals, foundation, each floor's frame and masonry, services, finishes and handover. " +
+                body = "Generate the complete residential schedule: approvals, foundation, each floor's frame and masonry, services, finishes and handover. " +
                     "Quantities come from your BOQ (tag BOQ entries by floor for exact figures), durations from crew output, and activity budgets from Budget 2.",
                 action = {
                     Button(onClick = { showGenerate = true }, shape = MaterialTheme.shapes.small, enabled = !state.isBusy) {
@@ -363,9 +363,9 @@ private fun OverviewSection(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val tile = Modifier.fillMaxHeight()
                 StatRow {
-                    StatTile("Baseline finish", report.baselineFinish?.let { formatShortDate(it) } ?: "—", tile.weight(1f),
+                    StatTile("Baseline finish", report.baselineFinish?.let { formatShortDate(it) } ?: NO_VALUE, tile.weight(1f),
                         caption = report.baselineStart?.let { "from ${formatShortDate(it)}" })
-                    StatTile("Forecast finish", report.forecastFinish?.let { formatShortDate(it) } ?: "—", tile.weight(1f),
+                    StatTile("Forecast finish", report.forecastFinish?.let { formatShortDate(it) } ?: NO_VALUE, tile.weight(1f),
                         valueColor = if (report.projectDelayDays > 0) SiteTheme.colors.bad else SiteTheme.colors.good,
                         caption = when {
                             report.projectDelayDays > 0 -> "${report.projectDelayDays} working days late"
@@ -374,9 +374,9 @@ private fun OverviewSection(
                         })
                 }
                 StatRow {
-                    StatTile("SPI", ev.spi?.let { "%.2f".format(it) } ?: "—", tile.weight(1f),
+                    StatTile("SPI", ev.spi?.let { "%.2f".format(it) } ?: NO_VALUE, tile.weight(1f),
                         valueColor = indexColor(ev.spi), caption = "Schedule: earned ÷ planned")
-                    StatTile("CPI", ev.cpi?.let { "%.2f".format(it) } ?: "—", tile.weight(1f),
+                    StatTile("CPI", ev.cpi?.let { "%.2f".format(it) } ?: NO_VALUE, tile.weight(1f),
                         valueColor = indexColor(ev.cpi), caption = "Cost: earned ÷ cost of work")
                 }
                 StatRow {
@@ -422,7 +422,7 @@ private fun OverviewSection(
                     MetricRow("Budget 2 (measured)", formatCurrency(report.budget2))
                     MetricRow("Assigned to activities", formatCurrency(report.scheduledBudget))
                     if (report.unscheduledCategories.isNotEmpty()) {
-                        Text("No activities yet for: ${report.unscheduledCategories.joinToString { it.name.replace('_', ' ') }} — their budget isn't tracked in earned value.",
+                        Text("No activities yet for: ${report.unscheduledCategories.joinToString { it.name.replace('_', ' ') }}. Their budget isn't tracked in earned value.",
                             style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.warn)
                     }
                 }
@@ -509,7 +509,7 @@ private fun signColor(v: Double) = if (v < 0) SiteTheme.colors.bad else SiteThem
 private fun LookaheadCard(report: ScheduleReport, onOpenActivity: (Long) -> Unit) {
     AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            SectionLabel("Look-ahead · ${formatShortDate(report.lookaheadStart)} – ${formatShortDate(report.lookaheadEnd)}")
+            SectionLabel("Look-ahead · ${formatShortDate(report.lookaheadStart)} - ${formatShortDate(report.lookaheadEnd)}")
             Spacer(Modifier.height(6.dp))
             if (report.upcoming.isEmpty()) {
                 Text("Nothing scheduled in the next two weeks.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
@@ -536,7 +536,7 @@ private fun LookaheadCard(report: ScheduleReport, onOpenActivity: (Long) -> Unit
                         Text(m.material, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.4f))
                         Text(formatQuantity(round1(m.required), m.unit), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                         Text(formatQuantity(round1(m.inStock), m.unit), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                        Text(if (m.shortage > 0) formatQuantity(round1(m.shortage), m.unit) else "—", style = MaterialTheme.typography.bodySmall,
+                        Text(if (m.shortage > 0) formatQuantity(round1(m.shortage), m.unit) else NO_VALUE, style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold, color = if (m.shortage > 0) SiteTheme.colors.bad else SiteTheme.colors.good, modifier = Modifier.weight(1f))
                     }
                 }
@@ -573,7 +573,7 @@ internal fun ActivityLine(v: ScheduleActivityView, onClick: () -> Unit) {
                     // screen readers.
                     val code = floorCode(v.activity.floorLabel)
                     if (code.isNotEmpty()) {
-                        Text(code, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = SiteTheme.colors.maroon,
+                        Text(code, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(end = 6.dp).semantics { contentDescription = v.activity.floorLabel })
                     }
                     Text(activityBaseName(v.activity.activityName, v.activity.floorLabel), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,

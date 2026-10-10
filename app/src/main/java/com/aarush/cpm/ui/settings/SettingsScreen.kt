@@ -48,7 +48,7 @@ class SettingsViewModel(
             isSeeding = true
             statusMessage = null
             runCatching { sampleDataSeeder.seedDemoProject() }
-                .onSuccess { statusMessage = "Demo project added — open it from Projects." }
+                .onSuccess { statusMessage = "Demo project added. Open it from Projects." }
                 .onFailure { statusMessage = "Could not create the demo: ${it.message}" }
             isSeeding = false
             onDone()
@@ -80,7 +80,7 @@ class SettingsViewModel(
             val result = DatabaseBackupHelper.backupTo(context, destination, database)
             isBackingUp = false
             statusMessage = result.fold(
-                onSuccess = { "Backup saved. Keep it somewhere safe — Drive, Downloads, wherever you like." },
+                onSuccess = { "Backup saved. Keep it somewhere safe: Drive, Downloads, wherever you like." },
                 onFailure = { "Backup failed: ${it.message}" }
             )
         }
@@ -131,7 +131,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
             AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        "Uninstalling the app deletes its data. Back up regularly — and always before uninstalling — to Downloads, " +
+                        "Uninstalling the app deletes its data. Back up regularly, and always before uninstalling, to Downloads, " +
                             "Google Drive or a USB drive. Restore checks the file first and keeps your current data if anything is wrong.",
                         style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
                     )
@@ -210,7 +210,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
             com.aarush.cpm.ui.common.AarushLogo(Modifier.width(180.dp))
             Spacer(Modifier.height(8.dp))
             Text("Aarush Construction & Consultant Works", style = MaterialTheme.typography.titleSmall)
-            Text("Aarush Construction Project Management System — v1.1.0", style = MaterialTheme.typography.bodySmall)
+            Text("Aarush Construction Project Management System, v1.1.0", style = MaterialTheme.typography.bodySmall)
             Text("Offline-first. All data stored locally on this device.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(32.dp))
         }

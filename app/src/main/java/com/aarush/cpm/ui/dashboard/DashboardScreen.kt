@@ -175,7 +175,7 @@ fun DashboardScreen(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete project?") },
             text = {
-                Text("\"${project.name}\" and everything in it — BOQ, expenses, vendors, schedule and progress — will be permanently deleted. " +
+                Text("\"${project.name}\" and everything in it (BOQ, expenses, vendors, schedule and progress) will be permanently deleted. " +
                     "Take a backup first (Settings) if you may need it.")
             },
             confirmButton = {
@@ -209,7 +209,7 @@ private fun ProjectCard(card: ProjectCardData, onClick: () -> Unit, onDelete: ()
                     Spacer(Modifier.height(8.dp))
                     Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
-                        listOf(p.clientName, p.location).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
+                        listOf(p.clientName, p.location).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { NO_VALUE },
                         style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }

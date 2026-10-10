@@ -42,6 +42,7 @@ import com.aarush.cpm.domain.schedule.ResidentialScheduleTemplate
 import com.aarush.cpm.ui.common.AppCard
 import com.aarush.cpm.ui.common.EmptyState
 import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.common.ColumnLabel
 import com.aarush.cpm.ui.theme.SiteTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.map
@@ -195,7 +196,7 @@ fun BOQTabContent(projectId: Long, viewModel: BOQViewModel, snackbarHostState: S
                         Column(Modifier.weight(1f)) {
                             Text("Copied measurements", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             Text(
-                                "${copied.itemCode} — M ${formatQuantity(copied.numberOfMembers, "")} • L ${copied.length} • B ${copied.breadth} • D ${copied.depth}",
+                                "${copied.itemCode}:  M ${formatQuantity(copied.numberOfMembers, "")}   L ${copied.length}   B ${copied.breadth}   D ${copied.depth}",
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -394,7 +395,7 @@ private fun BOQItemCompactRow(item: BOQItem, onEdit: () -> Unit, onCopy: () -> U
 @Composable
 private fun CompactStat(label: String, value: Double, unit: String = "") {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        SectionLabel(label)
+        ColumnLabel(label)
         Text(formatQuantity(value, unit), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -444,7 +445,7 @@ private fun AddEditBOQItemDialog(
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                 if (notations.isNotEmpty()) {
                     Box {
-                        OutlinedButton(onClick = { notationMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { notationMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                             Text(code.ifBlank { "Item code (pick a notation)" })
                         }
                         DropdownMenu(expanded = notationMenuExpanded, onDismissRequest = { notationMenuExpanded = false }) {
@@ -469,7 +470,7 @@ private fun AddEditBOQItemDialog(
                 OutlinedTextField(code, { code = it; materialType = it }, label = { Text("Item code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { categoryMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { categoryMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                         Text(category.name.replace("_", " "))
                     }
                     DropdownMenu(expanded = categoryMenuExpanded, onDismissRequest = { categoryMenuExpanded = false }) {
@@ -482,7 +483,7 @@ private fun AddEditBOQItemDialog(
                 OutlinedTextField(description, { description = it }, label = { Text("Description") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { unitMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Unit: $unit") }
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { unitMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Unit: $unit") }
                     DropdownMenu(expanded = unitMenuExpanded, onDismissRequest = { unitMenuExpanded = false }) {
                         BOQUnits.OPTIONS.forEach { u ->
                             DropdownMenuItem(text = { Text(u) }, onClick = { unit = u; unitMenuExpanded = false })
@@ -492,7 +493,7 @@ private fun AddEditBOQItemDialog(
 
                 Spacer(Modifier.height(6.dp))
                 Box {
-                    OutlinedButton(onClick = { floorMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { floorMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("Floor / location: ${floor.ifBlank { "Whole building" }}")
                     }
                     DropdownMenu(expanded = floorMenuExpanded, onDismissRequest = { floorMenuExpanded = false }) {
@@ -520,7 +521,7 @@ private fun AddEditBOQItemDialog(
                     OutlinedTextField(depth, { depth = it }, label = { Text("Depth") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Leave any field blank to treat it as 1 — e.g. just \"No. of Member\" for a plain count.", style = MaterialTheme.typography.labelSmall)
+                Text("Leave any field blank to treat it as 1, e.g. just \"No. of Member\" for a plain count.", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(6.dp))
                 Text("Calculated quantity: ${formatQuantity(computedQty, unit)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
