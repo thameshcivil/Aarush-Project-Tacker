@@ -77,7 +77,7 @@ internal fun ScheduleTopRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically
         ) {
             ScheduleSection.values().forEach { s ->
-                FilterChip(selected = section == s, onClick = { onSection(s) }, label = { Text(s.label) })
+                FilterChip(selected = section == s, onClick = { onSection(s) }, label = { Text(s.label) }, colors = selectedChipColors())
             }
         }
         var open by remember { mutableStateOf(false) }
@@ -117,7 +117,14 @@ private fun ToolItem(title: String, hint: String, icon: androidx.compose.ui.grap
 
 // ===================================================================== legend keys
 
-internal enum class KeyKind { ACTUAL, PLANNED_TICK, PLANNED_OUTLINE, FORECAST, DELAYED, TODAY, CRITICAL }
+/** Selected chips use the maroon tint (primary action colour); gold is reserved for "actual". */
+@Composable
+internal fun selectedChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+)
+
+internal enum class KeyKind { ACTUAL, PLANNED_TICK, PLANNED_OUTLINE, PLANNED_LINE, ACTUAL_LINE, FORECAST, DELAYED, TODAY, CRITICAL }
 
 /** Small drawn key matching exactly how the chart draws that thing. */
 @Composable
@@ -133,6 +140,8 @@ internal fun ChartKey(kind: KeyKind, modifier: Modifier = Modifier) {
             KeyKind.PLANNED_OUTLINE -> drawRoundRect(c.planned, Offset(1f, h * 0.2f), Size(w - 2f, h * 0.6f), CornerRadius(2f), style = Stroke(1.5.dp.toPx()))
             KeyKind.PLANNED_TICK -> drawRect(c.planned, Offset(w / 2 - 1.5.dp.toPx(), 0f), Size(3.dp.toPx(), h))
             KeyKind.TODAY -> drawLine(ink, Offset(w / 2, 0f), Offset(w / 2, h), strokeWidth = 2.dp.toPx())
+            KeyKind.PLANNED_LINE -> drawLine(c.planned, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 2.dp.toPx())
+            KeyKind.ACTUAL_LINE -> drawLine(c.accent, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 2.5.dp.toPx())
             KeyKind.CRITICAL -> drawRoundRect(c.planned, Offset(1f, h * 0.2f), Size(w - 2f, h * 0.6f), CornerRadius(2f), style = Stroke(2.5.dp.toPx()))
         }
     }
@@ -218,7 +227,7 @@ internal fun ScheduleOverview(report: ScheduleReport, onOpenActivity: (Long) -> 
                 Spacer(Modifier.height(12.dp))
                 SCurveChart(report.sCurve, report.today, Modifier.fillMaxWidth().height(180.dp))
                 Spacer(Modifier.height(8.dp))
-                FlowKeys { KeyItem(KeyKind.PLANNED_OUTLINE, "Planned (baseline)"); KeyItem(KeyKind.ACTUAL, "Actual") }
+                FlowKeys { KeyItem(KeyKind.PLANNED_LINE, "Planned (baseline)"); KeyItem(KeyKind.ACTUAL_LINE, "Actual"); KeyItem(KeyKind.TODAY, "Today") }
                 Spacer(Modifier.height(4.dp))
             }
         }
@@ -385,7 +394,7 @@ internal fun ScheduleActivitiesList(report: ScheduleReport, floorOrder: List<Str
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ActivityFilter.values().forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) }) }
+            ActivityFilter.values().forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) }, colors = selectedChipColors()) }
         }
         if (list.isEmpty()) {
             EmptyState("Nothing here", "No activities match this filter.")

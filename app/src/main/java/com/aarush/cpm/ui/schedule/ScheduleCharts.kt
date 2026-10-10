@@ -221,10 +221,13 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
                     drawLine(colors.hairline, Offset(x, scrollY), Offset(x, scrollY + hh), strokeWidth = 1f)
                     m = m.plusMonths(1)
                 }
+                // Where the "Today" tag sits, so a week number is not drawn underneath it.
+                val tagHalf = measurer.measure("Today", todayStyle).size.width / 2f + 6.dp.toPx()
                 if (dw >= 10.dp.toPx() * 0.7f) {
                     var wd = start
                     while (!wd.isAfter(end)) {
-                        if (wd.dayOfWeek == DayOfWeek.MONDAY && xOf(wd) > scrollX + labelWpx) {
+                        val underTag = xOf(wd) + 12.dp.toPx() > tx - tagHalf && xOf(wd) < tx + tagHalf
+                        if (wd.dayOfWeek == DayOfWeek.MONDAY && xOf(wd) > scrollX + labelWpx && !underTag) {
                             drawText(measurer, wd.format(dayFmt), Offset(xOf(wd) + 2, scrollY + hh - 15.dp.toPx()), smallStyle)
                         }
                         wd = wd.plusDays(1)
@@ -247,7 +250,7 @@ fun GanttChart(report: ScheduleReport, dayWidthDp: Float, onRowClick: (Long) -> 
     }
 }
 
-/** Cumulative planned (dark neutral) vs actual (gold) % complete, weekly; dashed line = today. */
+/** Cumulative planned (dark neutral) vs actual (gold) % complete, weekly; solid dark line = today. */
 @Composable
 fun SCurveChart(points: List<SCurvePoint>, today: LocalDate, modifier: Modifier = Modifier) {
     if (points.size < 2) {
@@ -255,6 +258,7 @@ fun SCurveChart(points: List<SCurvePoint>, today: LocalDate, modifier: Modifier 
         return
     }
     val colors = SiteTheme.colors
+    val ink = MaterialTheme.colorScheme.onSurface
     val measurer = rememberTextMeasurer()
     val axisStyle = TextStyle(fontSize = 9.sp, color = colors.muted)
     val fmt = remember { DateTimeFormatter.ofPattern("MMM", Locale.getDefault()) }
@@ -290,8 +294,8 @@ fun SCurveChart(points: List<SCurvePoint>, today: LocalDate, modifier: Modifier 
             drawCircle(colors.accent, 4.dp.toPx(), Offset(x(lp.date), y(lp.actualPercent!!)))
         }
         if (!today.isBefore(first) && !today.isAfter(last)) {
-            drawLine(colors.muted, Offset(x(today), top), Offset(x(today), bottom), strokeWidth = 1f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            // Solid dark "today" line, the same mark as on the Gantt chart.
+            drawLine(ink, Offset(x(today), top), Offset(x(today), bottom), strokeWidth = 1.5.dp.toPx())
         }
     }
 }
