@@ -110,8 +110,8 @@ class ProjectDetailViewModel(
         )
     }
 
-    fun addAreaComponent(label: String, area: Double, rate: Double) {
-        viewModelScope.launch { projectRepository.addAreaComponent(currentProjectId, label, area, rate); refreshSafely() }
+    fun addAreaComponent(label: String, area: Double, rate: Double, isCompoundWall: Boolean = false, isLumpSum: Boolean = false) {
+        viewModelScope.launch { projectRepository.addAreaComponent(currentProjectId, label, area, rate, isCompoundWall, isLumpSum); refreshSafely() }
     }
 
     fun updateAreaComponent(component: ProjectAreaComponent, label: String, area: Double, rate: Double) {
@@ -190,10 +190,10 @@ fun BudgetTrackingTabContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             state.error?.let { msg -> item { ErrorBanner(msg, onRetry = viewModel::retry) } }
-            item { ProjectValueHeader(s.project, onEditAreaRate = { showAreaDialog = true }) }
+            item { ProjectValueHeader(s.project, onEditAreaRate = { showAreaDialog = true }, compoundWallValue = s.compoundWallValue) }
             item { MoneySummaryTable(s) }
             state.budgetComparison?.let { bc -> item { BudgetComparisonTable(bc) } }
-            item { CategoryBudgetTable(s.categories) }
+            item { CategoryBudgetTable(s.categories, compoundWallValue = s.compoundWallValue) }
         }
     }
 
@@ -201,7 +201,7 @@ fun BudgetTrackingTabContent(
         AreaRateBreakdownDialog(
             components = state.areaComponents,
             onDismiss = { showAreaDialog = false },
-            onAdd = { label, area, rate -> viewModel.addAreaComponent(label, area, rate) },
+            onAdd = { label, area, rate, wall, lump -> viewModel.addAreaComponent(label, area, rate, wall, lump) },
             onUpdate = { comp, label, area, rate -> viewModel.updateAreaComponent(comp, label, area, rate) },
             onDelete = { comp -> pendingDeleteComponent = comp }
         )
@@ -213,7 +213,7 @@ fun BudgetTrackingTabContent(
                 pendingDeleteComponent = null
                 viewModel.deleteAreaComponent(comp)
                 scope.showUndoDeleteSnackbar(snackbarHostState, "Area removed") {
-                    viewModel.addAreaComponent(comp.label, comp.areaSqft, comp.ratePerSqft)
+                    viewModel.addAreaComponent(comp.label, comp.areaSqft, comp.ratePerSqft, comp.isCompoundWall, comp.isLumpSum)
                 }
             },
             onDismiss = { pendingDeleteComponent = null }
@@ -253,57 +253,77 @@ internal fun AlertsCard(alerts: List<ScheduleAlert>, max: Int = 6) {
 private fun AreaRateBreakdownDialog(
     components: List<ProjectAreaComponent>,
     onDismiss: () -> Unit,
-    onAdd: (String, Double, Double) -> Unit,
+    onAdd: (label: String, area: Double, rate: Double, isCompoundWall: Boolean, isLumpSum: Boolean) -> Unit,
     onUpdate: (ProjectAreaComponent, String, Double, Double) -> Unit,
     onDelete: (ProjectAreaComponent) -> Unit
 ) {
-    var showAddForm by remember { mutableStateOf(false) }
+    /** null = no form open; false = building row form; true = compound wall form. */
+    var addingWall by remember { mutableStateOf<Boolean?>(null) }
     var newLabel by remember { mutableStateOf("") }
     var newArea by remember { mutableStateOf("") }
     var newRate by remember { mutableStateOf("") }
+    var newLumpSum by remember { mutableStateOf(false) }
+    val buildingCount = components.count { !it.isCompoundWall }
+    fun resetForm() { addingWall = null; newLabel = ""; newArea = ""; newRate = ""; newLumpSum = false }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Area & rate breakdown") },
         text = {
-            Column(Modifier.heightIn(max = 460.dp)) {
+            Column(Modifier.heightIn(max = 520.dp)) {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
                     items(components, key = { it.id }) { comp ->
-                        AreaRateEditableRow(component = comp, canDelete = components.size > 1, onUpdate = onUpdate, onDelete = onDelete)
+                        // A project always needs one building row; wall rows can always go.
+                        AreaRateEditableRow(component = comp, canDelete = comp.isCompoundWall || buildingCount > 1, onUpdate = onUpdate, onDelete = onDelete)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                if (!showAddForm) {
-                    OutlinedButton(onClick = { showAddForm = true }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add item")
+                when (val wall = addingWall) {
+                    null -> {
+                        OutlinedButton(onClick = { addingWall = false }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Add, contentDescription = null); Spacer(Modifier.width(4.dp)); Text("Add item")
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedButton(onClick = { addingWall = true; newLabel = "Compound wall" }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Add, contentDescription = null); Spacer(Modifier.width(4.dp)); Text("Add compound wall")
+                        }
                     }
-                } else {
-                    SectionLabel("New item")
-                    Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(newLabel, { newLabel = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(6.dp))
-                    Row {
-                        OutlinedTextField(newArea, { newArea = it }, label = { Text("Area (sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(6.dp))
-                        OutlinedTextField(newRate, { newRate = it }, label = { Text("Rate (₹/sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { showAddForm = false; newLabel = ""; newArea = ""; newRate = "" }, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                        Button(shape = MaterialTheme.shapes.small, 
-                            onClick = {
-                                val area = newArea.toDoubleOrNull() ?: 0.0
-                                val rate = newRate.toDoubleOrNull() ?: 0.0
-                                if (area > 0 && rate > 0) {
-                                    onAdd(newLabel.ifBlank { "Area" }, area, rate)
-                                    newLabel = ""; newArea = ""; newRate = ""
-                                    showAddForm = false
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Add") }
+                    else -> {
+                        SectionLabel(if (wall) "New compound wall" else "New item")
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedTextField(newLabel, { newLabel = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        if (wall) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = !newLumpSum, onClick = { newLumpSum = false }, label = { Text("Running ft × rate") })
+                                FilterChip(selected = newLumpSum, onClick = { newLumpSum = true }, label = { Text("Lump sum") })
+                            }
+                            Text("Budgeted to Civil and Painting only.", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        if (wall && newLumpSum) {
+                            OutlinedTextField(newRate, { newRate = it }, label = { Text("Amount (₹)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
+                        } else Row {
+                            OutlinedTextField(newArea, { newArea = it }, label = { Text(if (wall) "Length (rft)" else "Area (sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(6.dp))
+                            OutlinedTextField(newRate, { newRate = it }, label = { Text(if (wall) "Rate (₹/rft)" else "Rate (₹/sqft)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { resetForm() }, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                            Button(shape = MaterialTheme.shapes.small,
+                                onClick = {
+                                    val lump = wall && newLumpSum
+                                    val area = if (lump) 1.0 else newArea.toDoubleOrNull() ?: 0.0
+                                    val rate = newRate.toDoubleOrNull() ?: 0.0
+                                    if (area > 0 && rate > 0) {
+                                        onAdd(newLabel.ifBlank { if (wall) "Compound wall" else "Area" }, area, rate, wall, lump)
+                                        resetForm()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Add") }
+                        }
                     }
                 }
             }
@@ -319,10 +339,12 @@ private fun AreaRateEditableRow(
     onUpdate: (ProjectAreaComponent, String, Double, Double) -> Unit,
     onDelete: (ProjectAreaComponent) -> Unit
 ) {
+    val lump = component.isLumpSum
+    val wall = component.isCompoundWall
     var label by remember(component.id) { mutableStateOf(component.label) }
     var area by remember(component.id) { mutableStateOf(if (component.areaSqft == 0.0) "" else "%.2f".format(component.areaSqft)) }
     var rate by remember(component.id) { mutableStateOf(if (component.ratePerSqft == 0.0) "" else "%.2f".format(component.ratePerSqft)) }
-    val a = area.toDoubleOrNull() ?: 0.0
+    val a = if (lump) 1.0 else area.toDoubleOrNull() ?: 0.0
     val r = rate.toDoubleOrNull() ?: 0.0
     val changed = label != component.label || a != component.areaSqft || r != component.ratePerSqft
 
@@ -330,21 +352,27 @@ private fun AreaRateEditableRow(
         Column(Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(label, { label = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.weight(1f))
-                // The last row can't be deleted — a project always needs at least one area/rate.
                 if (canDelete) IconButton(onClick = { onDelete(component) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
             }
+            if (wall) {
+                Text(if (lump) "Compound wall, lump sum. Civil and Painting only." else "Compound wall, running ft × rate. Civil and Painting only.",
+                    style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+            }
             Spacer(Modifier.height(4.dp))
-            Row {
-                OutlinedTextField(area, { area = it }, label = { Text("Area (sqft)") },
+            if (lump) {
+                OutlinedTextField(rate, { rate = it }, label = { Text("Amount (₹)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
+            } else Row {
+                OutlinedTextField(area, { area = it }, label = { Text(if (wall) "Length (rft)" else "Area (sqft)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(6.dp))
-                OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹/sqft)") },
+                OutlinedTextField(rate, { rate = it }, label = { Text(if (wall) "Rate (₹/rft)" else "Rate (₹/sqft)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Subtotal: ${formatCurrency(CalculationEngine.projectValue(a, r))}", style = MaterialTheme.typography.labelSmall)
-                TextButton(onClick = { if (a > 0 && r > 0) onUpdate(component, label.ifBlank { "Area" }, a, r) }, enabled = changed && a > 0 && r > 0) { Text("Save") }
+                TextButton(onClick = { if (a > 0 && r > 0) onUpdate(component, label.ifBlank { if (wall) "Compound wall" else "Area" }, a, r) }, enabled = changed && a > 0 && r > 0) { Text("Save") }
             }
         }
     }

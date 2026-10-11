@@ -6,6 +6,7 @@ import com.aarush.cpm.data.entity.CostCategory
 import com.aarush.cpm.data.entity.Project
 import com.aarush.cpm.data.entity.TransactionDirection
 import com.aarush.cpm.domain.calculation.CalculationEngine
+import com.aarush.cpm.domain.calculation.CompoundWallBudget
 
 data class CategoryBudgetVsActual(
     val allocation: CostAllocation,
@@ -24,7 +25,9 @@ data class ProjectSummary(
     val profit: Double,
     val profitPercent: Double,
     val progressPercent: Double,
-    val categories: List<CategoryBudgetVsActual>
+    val categories: List<CategoryBudgetVsActual>,
+    /** Compound wall part of the project value (budgeted to Civil and Painting only). */
+    val compoundWallValue: Double = 0.0
 )
 
 /**
@@ -75,8 +78,9 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
         val profit = CalculationEngine.grossProfit(project.projectValue, totalSpent)
         val profitPercent = CalculationEngine.profitPercent(profit, project.projectValue)
 
+        val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val categories = allocations.map { alloc ->
-            val budget = CalculationEngine.categoryBudget(project.projectValue, alloc.percentOfProjectValue)
+            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations)
             val actual = expenses.filter { it.category == alloc.category }.sumOf { it.totalAmount }
             CategoryBudgetVsActual(
                 allocation = alloc,
@@ -96,7 +100,8 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
             profit = profit,
             profitPercent = profitPercent,
             progressPercent = latestProgress?.overallProgressPercent ?: 0.0,
-            categories = categories
+            categories = categories,
+            compoundWallValue = wallValue
         )
     }
 
@@ -121,9 +126,12 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
         val civilLabourCost = BudgetMath.civilLabourPool(vendors)
         val civilTotal = civilMaterialCost + civilLabourCost
 
+        // Non-civil categories keep their % of Budget 1, with the compound wall carved out:
+        // MEP, Joinery, Tiling and Other get nothing from it; Painting gets its wall share.
+        val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val otherCategoriesTotal = allocations
             .filter { it.category != CostCategory.CIVIL_STRUCTURAL }
-            .sumOf { CalculationEngine.categoryBudget(project.projectValue, it.percentOfProjectValue) }
+            .sumOf { CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations) }
 
         val budget2 = civilTotal + otherCategoriesTotal
 

@@ -32,11 +32,19 @@ import java.util.Calendar
 data class AreaRateRow(
     val id: Int,
     val label: String = "",
+    /** Building rows: area in sqft. Compound wall rows: length in running feet. */
     val area: String = "",
-    val rate: String = ""
+    /** Building rows: ₹/sqft. Compound wall rows: ₹/rft, or the amount when [isLumpSum]. */
+    val rate: String = "",
+    val isCompoundWall: Boolean = false,
+    val isLumpSum: Boolean = false
 ) {
     val subtotal: Double
-        get() = CalculationEngine.projectValue(area.toDoubleOrNull() ?: 0.0, rate.toDoubleOrNull() ?: 0.0)
+        get() = if (isLumpSum) rate.toDoubleOrNull() ?: 0.0
+        else CalculationEngine.projectValue(area.toDoubleOrNull() ?: 0.0, rate.toDoubleOrNull() ?: 0.0)
+    val isValid: Boolean
+        get() = if (isLumpSum) (rate.toDoubleOrNull() ?: 0.0) > 0
+        else (area.toDoubleOrNull() ?: 0.0) > 0 && (rate.toDoubleOrNull() ?: 0.0) > 0
 }
 
 data class CreateProjectUiState(
@@ -55,7 +63,9 @@ data class CreateProjectUiState(
     val isSaving: Boolean = false
 ) {
     val computedValue: Double get() = areaRows.sumOf { it.subtotal }
-    val totalArea: Double get() = areaRows.sumOf { it.area.toDoubleOrNull() ?: 0.0 }
+    /** Building floor area only; a compound wall's running feet is not area. */
+    val totalArea: Double get() = areaRows.filterNot { it.isCompoundWall }.sumOf { it.area.toDoubleOrNull() ?: 0.0 }
+    val compoundWallValue: Double get() = areaRows.filter { it.isCompoundWall }.sumOf { it.subtotal }
     val finalValue: Double
         get() = if (useManualOverride) (manualOverrideValue.toDoubleOrNull() ?: computedValue) else computedValue
 }
@@ -77,19 +87,31 @@ class CreateProjectViewModel(
         }
     }
 
-    fun removeAreaRow(rowId: Int) {
+    /** Adds a compound wall row (running feet × rate by default; can switch to lump sum). */
+    fun addCompoundWallRow() {
         _uiState.value = _uiState.value.let { s ->
-            if (s.areaRows.size <= 1) s else s.copy(areaRows = s.areaRows.filterNot { it.id == rowId })
+            s.copy(areaRows = s.areaRows + AreaRateRow(id = s.nextRowId, label = "Compound wall", isCompoundWall = true),
+                nextRowId = s.nextRowId + 1, error = null)
         }
     }
 
-    fun updateAreaRow(rowId: Int, label: String? = null, area: String? = null, rate: String? = null) {
+    fun removeAreaRow(rowId: Int) {
+        _uiState.value = _uiState.value.let { s ->
+            val row = s.areaRows.firstOrNull { it.id == rowId } ?: return@let s
+            // Always keep at least one building row; wall rows can always be removed.
+            val buildingRows = s.areaRows.count { !it.isCompoundWall }
+            if (!row.isCompoundWall && buildingRows <= 1) s else s.copy(areaRows = s.areaRows.filterNot { it.id == rowId })
+        }
+    }
+
+    fun updateAreaRow(rowId: Int, label: String? = null, area: String? = null, rate: String? = null, isLumpSum: Boolean? = null) {
         _uiState.value = _uiState.value.let { s ->
             s.copy(areaRows = s.areaRows.map { row ->
                 if (row.id != rowId) row else row.copy(
                     label = label ?: row.label,
                     area = area ?: row.area,
-                    rate = rate ?: row.rate
+                    rate = rate ?: row.rate,
+                    isLumpSum = isLumpSum ?: row.isLumpSum
                 )
             }, error = null)
         }
@@ -102,11 +124,9 @@ class CreateProjectViewModel(
             _uiState.value = s.copy(error = "Enter the manual project value, or untick the override."); return
         }
 
-        val validRows = s.areaRows.filter { row ->
-            (row.area.toDoubleOrNull() ?: 0.0) > 0 && (row.rate.toDoubleOrNull() ?: 0.0) > 0
-        }
-        if (validRows.isEmpty()) {
-            _uiState.value = s.copy(error = "Add at least one area/rate row with area and rate both greater than 0.")
+        val validRows = s.areaRows.filter { it.isValid }
+        if (validRows.none { !it.isCompoundWall }) {
+            _uiState.value = s.copy(error = "Add at least one building area/rate row with area and rate both greater than 0.")
             return
         }
 
@@ -116,9 +136,12 @@ class CreateProjectViewModel(
             val expected = Calendar.getInstance().apply { timeInMillis = now; add(Calendar.MONTH, 6) }.timeInMillis
             val components = validRows.mapIndexed { index, row ->
                 AreaRateComponent(
-                    label = row.label.ifBlank { "Area ${index + 1}" },
-                    areaSqft = row.area.toDouble(),
-                    ratePerSqft = row.rate.toDouble()
+                    label = row.label.ifBlank { if (row.isCompoundWall) "Compound wall" else "Area ${index + 1}" },
+                    // Lump sum is stored as 1 × amount so value = area × rate everywhere.
+                    areaSqft = if (row.isLumpSum) 1.0 else row.area.toDouble(),
+                    ratePerSqft = row.rate.toDouble(),
+                    isCompoundWall = row.isCompoundWall,
+                    isLumpSum = row.isLumpSum
                 )
             }
             // Project + its default allocations + built-in notations/rates are created in ONE
@@ -189,18 +212,36 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
-                            if (s.areaRows.size > 1) {
+                            if (row.isCompoundWall || s.areaRows.count { !it.isCompoundWall } > 1) {
                                 IconButton(onClick = { viewModel.removeAreaRow(row.id) }) {
                                     Icon(Icons.Filled.Close, contentDescription = "Remove row")
                                 }
                             }
                         }
+                        if (row.isCompoundWall) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = !row.isLumpSum, onClick = { viewModel.updateAreaRow(row.id, isLumpSum = false) }, label = { Text("Running ft × rate") })
+                                FilterChip(selected = row.isLumpSum, onClick = { viewModel.updateAreaRow(row.id, isLumpSum = true) }, label = { Text("Lump sum") })
+                            }
+                            Text("Budgeted to Civil and Painting only (no plumbing, electrical, tiling or joinery).",
+                                style = MaterialTheme.typography.labelSmall, color = com.aarush.cpm.ui.theme.SiteTheme.colors.muted)
+                        }
                         Spacer(Modifier.height(6.dp))
-                        Row {
+                        if (row.isLumpSum) {
+                            OutlinedTextField(
+                                row.rate,
+                                { v -> viewModel.updateAreaRow(row.id, rate = v) },
+                                label = { Text("Amount (₹)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else Row {
                             OutlinedTextField(
                                 row.area,
                                 { v -> viewModel.updateAreaRow(row.id, area = v) },
-                                label = { Text("Area (sqft)") },
+                                label = { Text(if (row.isCompoundWall) "Length (rft)" else "Area (sqft)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
@@ -209,7 +250,7 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                             OutlinedTextField(
                                 row.rate,
                                 { v -> viewModel.updateAreaRow(row.id, rate = v) },
-                                label = { Text("Rate (₹/sqft)") },
+                                label = { Text(if (row.isCompoundWall) "Rate (₹/rft)" else "Rate (₹/sqft)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
@@ -228,6 +269,12 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                 Spacer(Modifier.width(4.dp))
                 Text("Add another area / rate")
             }
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { viewModel.addCompoundWallRow() }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("Add compound wall")
+            }
 
             Spacer(Modifier.height(12.dp))
             com.aarush.cpm.ui.common.AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -235,7 +282,10 @@ fun CreateProjectScreen(viewModel: CreateProjectViewModel, onBack: () -> Unit, o
                     com.aarush.cpm.ui.common.SectionLabel("Project value · Budget 1")
                     Spacer(Modifier.height(4.dp))
                     com.aarush.cpm.ui.common.FitText(formatCurrency(s.computedValue), style = com.aarush.cpm.ui.theme.FigureStyle)
-                    Text("Total area: ${"%.0f".format(s.totalArea)} sqft", style = MaterialTheme.typography.bodySmall)
+                    Text("Building area: ${"%.0f".format(s.totalArea)} sqft", style = MaterialTheme.typography.bodySmall)
+                    if (s.compoundWallValue > 0) {
+                        Text("Includes compound wall ${formatCurrency(s.compoundWallValue)} (Civil and Painting only)", style = MaterialTheme.typography.bodySmall)
+                    }
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = s.useManualOverride, onCheckedChange = { v -> viewModel.update { it.copy(useManualOverride = v) } })

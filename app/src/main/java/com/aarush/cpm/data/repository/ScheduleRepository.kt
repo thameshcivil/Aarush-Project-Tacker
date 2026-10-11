@@ -1,5 +1,7 @@
 package com.aarush.cpm.data.repository
 
+import com.aarush.cpm.domain.calculation.CompoundWallBudget
+
 import androidx.room.withTransaction
 import com.aarush.cpm.data.database.AppDatabase
 import com.aarush.cpm.data.entity.*
@@ -498,8 +500,9 @@ class ScheduleRepository(private val db: AppDatabase) {
             a.id to if (a.category == CostCategory.CIVIL_STRUCTURAL && code.isNotBlank() && totalQ > 0)
                 (civilCostByNotation[code] ?: 0.0) * (quantities[a.id] ?: 0.0) / totalQ else 0.0
         }
+        val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val pools = allocations.filter { it.category != CostCategory.CIVIL_STRUCTURAL }
-            .associate { it.category to CalculationEngine.categoryBudget(project.projectValue, it.percentOfProjectValue) }
+            .associate { it.category to CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations) }
         val civilLabourPool = BudgetMath.civilLabourPool(vendors)
         val budgets = ScheduleEngine.allocateBudgets(
             activities.map { BudgetInput(it.id, it.category, it.budgetWeight, it.budgetOverride, materialCost[it.id] ?: 0.0,
@@ -621,7 +624,7 @@ class ScheduleRepository(private val db: AppDatabase) {
         ev.cpi?.let { if (it < 0.95) alerts += ScheduleAlert(NotificationType.BUDGET_EXCEEDED,
             "Cost performance ${"%.2f".format(it)} — work done is costing more than budgeted. Forecast cost at completion ₹${"%,.0f".format(ev.estimateAtCompletion)}.", it < 0.85) }
         allocations.forEach { alloc ->
-            val budget = CalculationEngine.categoryBudget(project.projectValue, alloc.percentOfProjectValue)
+            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations)
             val actual = expenses.filter { it.direction == TransactionDirection.EXPENSE && it.category == alloc.category }.sumOf { it.totalAmount }
             if (budget > 0 && actual > budget) alerts += ScheduleAlert(NotificationType.BUDGET_EXCEEDED,
                 "${alloc.category.name.replace('_', ' ')} spend ₹${"%,.0f".format(actual)} exceeds its budget ₹${"%,.0f".format(budget)}.", true)

@@ -90,6 +90,8 @@ data class ProjectSettingsUiState(
     val rateRows: List<RateEditRow> = emptyList(),
     val nextKey: Int = 0,
     val isLoading: Boolean = true,
+    /** Compound wall part of the project value, for the budget preview (Civil and Painting only). */
+    val compoundWallValue: Double = 0.0,
     val isSaving: Boolean = false,
     val savedMessage: String? = null,
     val error: String? = null
@@ -142,8 +144,10 @@ class ProjectSettingsViewModel(
                 AllocationEditRow(cat, fmt(a?.percentOfProjectValue ?: 0.0), fmt(a?.materialPercent ?: 65.0))
             }
 
+            val wallValue = com.aarush.cpm.domain.calculation.CompoundWallBudget.wallValue(projectRepository.getAreaComponents(projectId))
             _uiState.value = ProjectSettingsUiState(
                 project = project,
+                compoundWallValue = wallValue,
                 projectEdit = project?.let {
                     ProjectEdit(
                         name = it.name, clientName = it.clientName, clientContact = it.clientContact, location = it.location,
@@ -403,12 +407,23 @@ private fun ProjectTab(state: ProjectSettingsUiState, viewModel: ProjectSettings
         }
         Spacer(Modifier.height(6.dp))
         val value = state.project?.projectValue ?: 0.0
+        // Preview with the percentages as currently typed; the compound wall (if any) goes to
+        // Civil and Painting only, exactly as the saved budgets will.
+        val previewAllocations = state.allocations.map {
+            com.aarush.cpm.data.entity.CostAllocation(projectId = 0, category = it.category, percentOfProjectValue = it.percent.toDoubleOrNull() ?: 0.0)
+        }
+        if (state.compoundWallValue > 0) {
+            Text("Includes compound wall ${formatCurrency(state.compoundWallValue)}: shared by Civil and Painting only; other categories use the building value.",
+                style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+            Spacer(Modifier.height(6.dp))
+        }
         state.allocations.forEach { a ->
             AppCard(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                 Column(Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(a.category.name.replace('_', ' '), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                        Text(formatCurrencyShort(CalculationEngine.categoryBudget(value, a.percent.toDoubleOrNull() ?: 0.0)),
+                        Text(formatCurrencyShort(com.aarush.cpm.domain.calculation.CompoundWallBudget.categoryBudget(
+                            a.category, a.percent.toDoubleOrNull() ?: 0.0, value, state.compoundWallValue, previewAllocations)),
                             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Row {

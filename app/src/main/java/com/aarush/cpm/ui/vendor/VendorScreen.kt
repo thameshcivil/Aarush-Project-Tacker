@@ -1,5 +1,9 @@
 package com.aarush.cpm.ui.vendor
 
+import androidx.compose.foundation.clickable
+
+import com.aarush.cpm.ui.common.formatQuantity
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +28,7 @@ import androidx.lifecycle.viewModelScope
 import com.aarush.cpm.data.entity.Expense
 import com.aarush.cpm.data.entity.Vendor
 import com.aarush.cpm.data.entity.VendorRateType
+import com.aarush.cpm.data.entity.VendorWork
 import com.aarush.cpm.data.entity.VendorWorkCategory
 import com.aarush.cpm.data.repository.ExpenseRepository
 import com.aarush.cpm.data.repository.ProjectRepository
@@ -55,6 +60,9 @@ data class VendorInput(
     val rate: Double, val quantity: Double, val paymentTerms: String, val notes: String
 )
 
+/** Extra work entered in the dialog. [amount] = running feet × rate, or the lump sum. */
+data class WorkInput(val label: String, val isLumpSum: Boolean, val quantity: Double, val rate: Double, val amount: Double)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VendorViewModel(
     private val vendorRepository: VendorRepository,
@@ -81,9 +89,28 @@ class VendorViewModel(
         .map { it?.projectValue ?: 0.0 }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    /** Extra work on vendors' contracts (e.g. a compound wall), for the cards. */
+    val works: StateFlow<List<VendorWork>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else vendorRepository.observeWorks(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun init(projectId: Long) {
         projectIdFlow.value = projectId
     }
+
+    fun addWork(vendor: Vendor, input: WorkInput) {
+        viewModelScope.launch { vendorRepository.addWork(vendor.id, input.label, input.isLumpSum, input.quantity, input.rate, input.amount) }
+    }
+
+    fun updateWork(original: VendorWork, input: WorkInput) {
+        viewModelScope.launch {
+            vendorRepository.updateWork(original, original.copy(label = input.label, isLumpSum = input.isLumpSum,
+                quantity = if (input.isLumpSum) 0.0 else input.quantity, rate = if (input.isLumpSum) 0.0 else input.rate, amount = input.amount))
+        }
+    }
+
+    fun deleteWork(work: VendorWork) { viewModelScope.launch { vendorRepository.deleteWork(work) } }
+    fun restoreWork(work: VendorWork) { viewModelScope.launch { vendorRepository.restoreWork(work) } }
 
     fun addVendor(input: VendorInput) {
         val currentProjectId = projectIdFlow.value ?: return
@@ -102,7 +129,10 @@ class VendorViewModel(
         val currentProjectId = projectIdFlow.value ?: return
         viewModelScope.launch {
             val project = projectRepository.getById(currentProjectId)
-            val newContractValue = CalculationEngine.vendorContractValue(input.rateType, input.rate, input.quantity, project?.projectValue ?: 0.0)
+            // Base contract recalculated from the edited terms, plus any extra work already
+            // added (e.g. a compound wall), so editing the vendor never drops that work.
+            val newContractValue = CalculationEngine.vendorContractValue(input.rateType, input.rate, input.quantity, project?.projectValue ?: 0.0) +
+                vendorRepository.worksTotal(original.id)
             vendorRepository.updateVendor(
                 original.copy(
                     name = input.name, contact = input.contact, workCategory = input.workCategory, rateType = input.rateType,
@@ -129,6 +159,10 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
     val vendors by viewModel.vendors.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
     val projectValue by viewModel.projectValue.collectAsState()
+    val works by viewModel.works.collectAsState()
+    var addingWorkFor by remember { mutableStateOf<Vendor?>(null) }
+    var editingWork by remember { mutableStateOf<VendorWork?>(null) }
+    var pendingDeleteWork by remember { mutableStateOf<VendorWork?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingVendor by remember { mutableStateOf<Vendor?>(null) }
     var pendingDelete by remember { mutableStateOf<Vendor?>(null) }
@@ -151,7 +185,11 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
                 }
                 items(vendors, key = { it.id }) { v ->
                     val payments = expenses.filter { it.vendorId == v.id }.sortedByDescending { it.date }
-                    VendorCard(vendor = v, payments = payments, onEdit = { editingVendor = v }, onDelete = { pendingDelete = v })
+                    VendorCard(
+                        vendor = v, payments = payments, works = works.filter { it.vendorId == v.id },
+                        onEdit = { editingVendor = v }, onDelete = { pendingDelete = v },
+                        onAddWork = { addingWorkFor = v }, onEditWork = { editingWork = it }
+                    )
                 }
                 item { Spacer(Modifier.height(72.dp)) }
             }
@@ -175,6 +213,27 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
             editingVendor = null
         })
     }
+    addingWorkFor?.let { vendor ->
+        VendorWorkDialog(vendorName = vendor.name, existing = null, onDismiss = { addingWorkFor = null },
+            onSave = { input -> viewModel.addWork(vendor, input); addingWorkFor = null }, onDelete = null)
+    }
+    editingWork?.let { work ->
+        VendorWorkDialog(vendorName = vendors.firstOrNull { it.id == work.vendorId }?.name ?: "", existing = work,
+            onDismiss = { editingWork = null },
+            onSave = { input -> viewModel.updateWork(work, input); editingWork = null },
+            onDelete = { editingWork = null; pendingDeleteWork = work })
+    }
+    pendingDeleteWork?.let { work ->
+        ConfirmDeleteDialog(
+            itemLabel = "\"${work.label}\" (${formatCurrency(work.amount)} comes off the contract)",
+            onConfirm = {
+                pendingDeleteWork = null
+                viewModel.deleteWork(work)
+                scope.showUndoDeleteSnackbar(snackbarHostState, "Work removed") { viewModel.restoreWork(work) }
+            },
+            onDismiss = { pendingDeleteWork = null }
+        )
+    }
     pendingDelete?.let { vendor ->
         ConfirmDeleteDialog(
             itemLabel = "vendor \"${vendor.name}\"",
@@ -190,7 +249,10 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Unit, onDelete: () -> Unit) {
+internal fun VendorCard(
+    vendor: Vendor, payments: List<Expense>, works: List<VendorWork>,
+    onEdit: () -> Unit, onDelete: () -> Unit, onAddWork: () -> Unit, onEditWork: (VendorWork) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     val balance = vendor.contractValue - vendor.amountPaid
 
@@ -214,6 +276,30 @@ private fun VendorCard(vendor: Vendor, payments: List<Expense>, onEdit: () -> Un
             MetricRow(if (balance < 0) "Overpaid by" else "Balance", formatCurrency(kotlin.math.abs(balance)),
                 valueColor = if (balance < 0) SiteTheme.colors.bad else androidx.compose.ui.graphics.Color.Unspecified, emphasize = true)
             if (vendor.paymentTerms.isNotBlank()) Text("Terms: ${vendor.paymentTerms}", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+
+            // Extra work on this contract (e.g. a compound wall); included in "Contract" above.
+            if (works.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                SectionLabel("Extra work (included in contract)")
+                works.forEach { w ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClickLabel = "Edit work") { onEditWork(w) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(w.label, style = MaterialTheme.typography.bodyMedium)
+                            Text(if (w.isLumpSum) "Lump sum" else "${formatQuantity(w.quantity, "rft")} × ${formatCurrency(w.rate)}/rft",
+                                style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+                        }
+                        Text(formatCurrency(w.amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            TextButton(onClick = onAddWork, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(start = 0.dp, top = 8.dp, end = 8.dp, bottom = 8.dp)) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add work (e.g. compound wall)")
+            }
 
             if (expanded) {
                 Spacer(Modifier.height(8.dp))
@@ -346,6 +432,68 @@ private fun AddEditVendorDialog(
                     onSubmit(VendorInput(name.trim(), contact, workCategory, rateType, finalRateValue, finalQuantityValue, terms, notes))
                 }
             }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * Add / edit extra work on a vendor's contract. Running feet × rate or a lump sum; the amount
+ * is added to the vendor's contract value. Label defaults to "Compound wall".
+ */
+@Composable
+private fun VendorWorkDialog(
+    vendorName: String,
+    existing: VendorWork?,
+    onDismiss: () -> Unit,
+    onSave: (WorkInput) -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    var label by remember { mutableStateOf(existing?.label ?: "Compound wall") }
+    var lumpSum by remember { mutableStateOf(existing?.isLumpSum ?: false) }
+    var rft by remember { mutableStateOf(existing?.quantity?.takeIf { it > 0 }?.let { formatQuantity(it, "") } ?: "") }
+    var rate by remember { mutableStateOf(existing?.rate?.takeIf { it > 0 }?.let { formatQuantity(it, "") } ?: "") }
+    var amountText by remember { mutableStateOf(existing?.takeIf { it.isLumpSum }?.amount?.let { formatQuantity(it, "") } ?: "") }
+    val q = rft.toDoubleOrNull() ?: 0.0
+    val r = rate.toDoubleOrNull() ?: 0.0
+    val amount = if (lumpSum) amountText.toDoubleOrNull() ?: 0.0 else q * r
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "Add work" else "Edit work") },
+        text = {
+            Column {
+                if (vendorName.isNotBlank()) Text("For $vendorName", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(label, { label = it }, label = { Text("Work") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !lumpSum, onClick = { lumpSum = false }, label = { Text("Running ft × rate") })
+                    FilterChip(selected = lumpSum, onClick = { lumpSum = true }, label = { Text("Lump sum") })
+                }
+                Spacer(Modifier.height(8.dp))
+                if (lumpSum) {
+                    OutlinedTextField(amountText, { amountText = it }, label = { Text("Amount (₹)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                } else {
+                    Row {
+                        OutlinedTextField(rft, { rft = it }, label = { Text("Length (rft)") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(6.dp))
+                        OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹/rft)") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Adds ${formatCurrency(amount)} to the contract", fontWeight = FontWeight.SemiBold)
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("Delete this work", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(WorkInput(label.trim().ifBlank { "Compound wall" }, lumpSum, q, r, amount)) }, enabled = amount > 0) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

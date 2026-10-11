@@ -291,6 +291,48 @@ class VendorRepository(private val db: AppDatabase) {
 
     fun linkedLineName(vendorName: String) = "Labour Cost for $vendorName"
 
+    // ------------------------------------------------------------------ extra work (v9)
+
+    fun observeWorks(projectId: Long): Flow<List<VendorWork>> = db.vendorWorkDao().observeForProject(projectId)
+
+    /** Sum of a vendor's extra work, part of its contract value. */
+    suspend fun worksTotal(vendorId: Long): Double = db.vendorWorkDao().getForVendor(vendorId).sumOf { it.amount }
+
+    /** Value of one piece of extra work: running feet × rate, or the lump sum itself. */
+    fun workAmount(isLumpSum: Boolean, quantity: Double, rate: Double, lumpSum: Double): Double =
+        if (isLumpSum) lumpSum else quantity * rate
+
+    /** Adds extra work (e.g. a compound wall) to an existing vendor; the vendor's contract
+     *  value grows by its amount, so balances, Budget 2 civil labour and alerts include it. */
+    suspend fun addWork(vendorId: Long, label: String, isLumpSum: Boolean, quantity: Double, rate: Double, amount: Double) = db.withTransaction {
+        val vendor = db.vendorDao().getById(vendorId) ?: return@withTransaction
+        db.vendorWorkDao().insert(VendorWork(projectId = vendor.projectId, vendorId = vendorId, label = label,
+            isLumpSum = isLumpSum, quantity = if (isLumpSum) 0.0 else quantity, rate = if (isLumpSum) 0.0 else rate, amount = amount))
+        db.vendorDao().update(vendor.copy(contractValue = vendor.contractValue + amount))
+    }
+
+    /** Edits extra work; the contract value moves by the change in its amount. */
+    suspend fun updateWork(original: VendorWork, updated: VendorWork) = db.withTransaction {
+        db.vendorWorkDao().update(updated)
+        db.vendorDao().getById(original.vendorId)?.let { v ->
+            db.vendorDao().update(v.copy(contractValue = v.contractValue - original.amount + updated.amount))
+        }
+    }
+
+    /** Removes extra work and takes its amount off the contract value. */
+    suspend fun deleteWork(work: VendorWork) = db.withTransaction {
+        db.vendorWorkDao().delete(work)
+        db.vendorDao().getById(work.vendorId)?.let { v ->
+            db.vendorDao().update(v.copy(contractValue = (v.contractValue - work.amount).coerceAtLeast(0.0)))
+        }
+    }
+
+    /** Undo for [deleteWork]. */
+    suspend fun restoreWork(work: VendorWork) = db.withTransaction {
+        db.vendorWorkDao().insert(work.copy(id = 0))
+        db.vendorDao().getById(work.vendorId)?.let { v -> db.vendorDao().update(v.copy(contractValue = v.contractValue + work.amount)) }
+    }
+
     suspend fun addVendor(
         projectId: Long, name: String, contact: String, workCategory: VendorWorkCategory,
         rateType: VendorRateType, rate: Double, quantity: Double, projectValue: Double,

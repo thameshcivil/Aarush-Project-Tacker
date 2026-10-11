@@ -41,7 +41,7 @@ private val FigureCell = FigureStyle.copy(fontSize = 15.sp, letterSpacing = 0.sp
 
 /** Project value, shown plainly at the top of the screen. Tap (or the button) edits area & rate. */
 @Composable
-internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, modifier: Modifier = Modifier, compoundWallValue: Double = 0.0) {
     Column(modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth().clickable(onClickLabel = "Edit area and rate", onClick = onEditAreaRate)
@@ -55,6 +55,10 @@ internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, mo
                 "${formatQuantity(project.plinthAreaSqft, "sqft")} @ ${formatCurrency(project.ratePerSqft)}/sqft",
                 style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
             )
+            if (compoundWallValue > 0) {
+                Text("+ compound wall ${formatCurrency(compoundWallValue)} (Civil and Painting only)",
+                    style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            }
             val details = listOf(
                 project.projectType,
                 "${project.numberOfFloors} floor${if (project.numberOfFloors == 1) "" else "s"}"
@@ -201,7 +205,7 @@ private fun SubHeading(text: String) {
  * amount ever has to shrink below legibility or be cut.
  */
 @Composable
-internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modifier: Modifier = Modifier) {
+internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modifier: Modifier = Modifier, compoundWallValue: Double = 0.0) {
     LedgerSection("Budget vs actual by category", modifier) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stacked = maxWidth < 290.dp
@@ -214,7 +218,7 @@ internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modif
                 }
                 HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
                 categories.forEachIndexed { i, cat ->
-                    CategoryRow(cat, stacked)
+                    CategoryRow(cat, stacked, compoundWallValue > 0)
                     if (i < categories.lastIndex) HorizontalDivider(color = SiteTheme.colors.hairline, thickness = 1.dp)
                 }
                 if (categories.isEmpty()) {
@@ -229,10 +233,18 @@ internal fun CategoryBudgetTable(categories: List<CategoryBudgetVsActual>, modif
 private const val CategoryWeight = 1.25f
 
 @Composable
-private fun CategoryRow(cat: CategoryBudgetVsActual, stacked: Boolean) {
+private fun CategoryRow(cat: CategoryBudgetVsActual, stacked: Boolean, hasWall: Boolean = false) {
     val over = cat.variance < 0
     val name = humanizeLabel(cat.allocation.category.name)
-    val share = "${formatPercent(cat.allocation.percentOfProjectValue)} of value"
+    // With a compound wall, the % applies to the building value; Civil and Painting also get
+    // their share of the wall (the budget figure already includes it).
+    val pct = formatPercent(cat.allocation.percentOfProjectValue)
+    val share = when {
+        !hasWall -> "$pct of value"
+        cat.allocation.category == com.aarush.cpm.data.entity.CostCategory.CIVIL_STRUCTURAL ||
+            cat.allocation.category == com.aarush.cpm.data.entity.CostCategory.PAINTING -> "$pct of building + wall share"
+        else -> "$pct of building"
+    }
     val spoken = "$name, $share. Budget ${formatCurrency(cat.budget)}, actual ${formatCurrency(cat.actual)}, " +
         (if (over) "over by ${formatCurrency(-cat.variance)}" else "remaining ${formatCurrency(cat.variance)}")
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { contentDescription = spoken }) {

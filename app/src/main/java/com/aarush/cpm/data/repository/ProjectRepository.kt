@@ -15,7 +15,11 @@ import kotlinx.coroutines.flow.Flow
 data class AreaRateComponent(
     val label: String,
     val areaSqft: Double,
-    val ratePerSqft: Double
+    val ratePerSqft: Double,
+    /** Compound wall: areaSqft = running feet (or 1 for a lump sum), ratePerSqft = rate per
+     *  rft (or the lump-sum amount). Budgeted to Civil and Painting only. */
+    val isCompoundWall: Boolean = false,
+    val isLumpSum: Boolean = false
 )
 
 class ProjectRepository(private val db: AppDatabase) {
@@ -63,9 +67,13 @@ class ProjectRepository(private val db: AppDatabase) {
     ): Long = db.withTransaction {
         require(areaComponents.isNotEmpty()) { "At least one area & rate component is required." }
 
-        val totalArea = areaComponents.sumOf { it.areaSqft }
+        // Plinth area and the blended rate describe the BUILDING only; a compound wall's running
+        // feet (or lump sum) is not floor area. Its value still counts in the project value.
+        val building = areaComponents.filterNot { it.isCompoundWall }
+        val totalArea = building.sumOf { it.areaSqft }
+        val buildingValue = building.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
         val computedValue = areaComponents.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
-        val blendedRate = if (totalArea > 0) computedValue / totalArea else 0.0
+        val blendedRate = if (totalArea > 0) buildingValue / totalArea else 0.0
         val finalValue = manualProjectValue ?: computedValue
 
         val project = Project(
@@ -87,7 +95,10 @@ class ProjectRepository(private val db: AppDatabase) {
         val id = db.projectDao().insert(project)
         db.costAllocationDao().insertAll(defaultAllocations(id))
         db.projectAreaComponentDao().insertAll(
-            areaComponents.map { ProjectAreaComponent(projectId = id, label = it.label, areaSqft = it.areaSqft, ratePerSqft = it.ratePerSqft) }
+            areaComponents.map {
+                ProjectAreaComponent(projectId = id, label = it.label, areaSqft = it.areaSqft, ratePerSqft = it.ratePerSqft,
+                    isCompoundWall = it.isCompoundWall, isLumpSum = it.isLumpSum)
+            }
         )
         afterCreate(id)
         id
@@ -106,17 +117,23 @@ class ProjectRepository(private val db: AppDatabase) {
     private suspend fun recalculateAggregatesFromComponents(projectId: Long) {
         val project = db.projectDao().getById(projectId) ?: return
         val components = db.projectAreaComponentDao().getForProject(projectId)
-        val totalArea = components.sumOf { it.areaSqft }
+        val building = components.filterNot { it.isCompoundWall }
+        val totalArea = building.sumOf { it.areaSqft }
+        val buildingValue = building.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
         val computedValue = components.sumOf { CalculationEngine.projectValue(it.areaSqft, it.ratePerSqft) }
-        val blendedRate = if (totalArea > 0) computedValue / totalArea else 0.0
+        val blendedRate = if (totalArea > 0) buildingValue / totalArea else 0.0
         val newValue = if (project.isProjectValueManuallyOverridden) project.projectValue else computedValue
         db.projectDao().update(
             project.copy(plinthAreaSqft = totalArea, ratePerSqft = blendedRate, projectValue = newValue, updatedAt = System.currentTimeMillis())
         )
     }
 
-    suspend fun addAreaComponent(projectId: Long, label: String, areaSqft: Double, ratePerSqft: Double) = db.withTransaction {
-        db.projectAreaComponentDao().insertAll(listOf(ProjectAreaComponent(projectId = projectId, label = label, areaSqft = areaSqft, ratePerSqft = ratePerSqft)))
+    suspend fun addAreaComponent(
+        projectId: Long, label: String, areaSqft: Double, ratePerSqft: Double,
+        isCompoundWall: Boolean = false, isLumpSum: Boolean = false
+    ) = db.withTransaction {
+        db.projectAreaComponentDao().insertAll(listOf(ProjectAreaComponent(projectId = projectId, label = label, areaSqft = areaSqft,
+            ratePerSqft = ratePerSqft, isCompoundWall = isCompoundWall, isLumpSum = isLumpSum)))
         recalculateAggregatesFromComponents(projectId)
     }
 
@@ -162,6 +179,7 @@ class ProjectRepository(private val db: AppDatabase) {
         db.materialPurchaseDao().deleteForProject(id)
         db.expenseDao().deleteForProject(id)
         db.clientPaymentDao().deleteForProject(id)
+        db.vendorWorkDao().deleteForProject(id)
         db.vendorDao().deleteForProject(id)
         db.materialRateCardDao().deleteForProject(id)
         db.materialCoefficientDao().deleteForProject(id)

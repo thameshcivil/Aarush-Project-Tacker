@@ -33,7 +33,8 @@ import com.aarush.cpm.data.entity.*
         ProjectAreaComponent::class,
         BOQNotation::class,
         MaterialRateCard::class,
-        ActivityProgressLog::class
+        ActivityProgressLog::class,
+        VendorWork::class
     ],
     version = AppDatabase.VERSION,
     exportSchema = true
@@ -63,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun boqNotationDao(): BOQNotationDao
     abstract fun materialRateCardDao(): MaterialRateCardDao
     abstract fun activityProgressLogDao(): ActivityProgressLogDao
+    abstract fun vendorWorkDao(): VendorWorkDao
 
     companion object {
         /** File name of the underlying SQLite database — also used by the backup/restore
@@ -71,7 +73,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** Current schema version. Also used by restore-from-backup to reject a backup made
          *  by a newer app version (Room cannot downgrade a schema). */
-        const val VERSION = 8
+        const val VERSION = 9
 
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -259,6 +261,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v8 → v9: compound wall. Adds project_area_components.isCompoundWall / isLumpSum
+         *  (existing rows: ordinary building rows) and the vendor_works table (extra work on a
+         *  vendor's contract). Additive only, no data loss. */
+        /** SQL for v8 → v9, kept as constants so a unit test can check them against the
+         *  schema Room generates from the entities (a mismatch would crash on open). */
+        internal val SQL_8_9_ADD_AREA_COLUMNS = listOf(
+            "ALTER TABLE project_area_components ADD COLUMN isCompoundWall INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE project_area_components ADD COLUMN isLumpSum INTEGER NOT NULL DEFAULT 0"
+        )
+        internal const val SQL_8_9_CREATE_VENDOR_WORKS =
+            "CREATE TABLE IF NOT EXISTS vendor_works (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, projectId INTEGER NOT NULL, vendorId INTEGER NOT NULL, " +
+                "label TEXT NOT NULL, isLumpSum INTEGER NOT NULL, quantity REAL NOT NULL, rate REAL NOT NULL, " +
+                "amount REAL NOT NULL, createdAt INTEGER NOT NULL)"
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                SQL_8_9_ADD_AREA_COLUMNS.forEach { db.execSQL(it) }
+                db.execSQL(SQL_8_9_CREATE_VENDOR_WORKS)
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -266,7 +290,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build().also { INSTANCE = it }
             }
 
