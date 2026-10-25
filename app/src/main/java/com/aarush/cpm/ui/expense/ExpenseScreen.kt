@@ -345,7 +345,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
             }
         }
 
-        FloatingActionButton(
+        if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editExpenses) FloatingActionButton(
             onClick = { showAddDialog = true },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
         ) { Icon(Icons.Filled.Add, "Add") }
@@ -433,6 +433,10 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                 }
                 Text("Mode of payment: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 if (expense.type == ExpenseType.VENDOR) Text("Vendor payment", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                com.aarush.cpm.ui.common.enteredByName(expense.enteredBy)?.let {
+                    Text("Entered by: $it", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                }
+                if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editExpenses) {
                 Spacer(Modifier.height(8.dp))
                 Row {
                     TextButton(onClick = onEdit) {
@@ -442,6 +446,7 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                     }
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = onDelete) { Text("Delete") }
+                }
                 }
             }
         }
@@ -469,6 +474,10 @@ private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -
                 Spacer(Modifier.height(8.dp))
                 Text("Mode of payment: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 Text("Description: ${expense.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
+                com.aarush.cpm.ui.common.enteredByName(expense.enteredBy)?.let {
+                    Text("Entered by: $it", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                }
+                if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editExpenses) {
                 Spacer(Modifier.height(8.dp))
                 Row {
                     TextButton(onClick = onEdit) {
@@ -478,6 +487,7 @@ private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -
                     }
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = onDelete) { Text("Delete") }
+                }
                 }
             }
         }

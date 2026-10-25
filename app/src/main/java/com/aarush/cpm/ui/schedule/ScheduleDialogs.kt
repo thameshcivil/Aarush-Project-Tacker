@@ -249,11 +249,12 @@ internal fun ActivityDetailSheet(
             Text("${formatPercent(t.actualPercent)} done · ${formatPercent(t.plannedPercent)} planned by today",
                 style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onLog, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f), enabled = t.status != ActivityStatus.COMPLETED) { Text("Log progress") }
-                OutlinedButton(onClick = onEdit, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f)) { Text("Edit") }
+            val pa = com.aarush.cpm.ui.common.LocalProjectAccess.current
+            if (pa.logProgress || pa.editSchedulePlan) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (pa.logProgress) Button(onClick = onLog, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f), enabled = t.status != ActivityStatus.COMPLETED) { Text("Log progress") }
+                if (pa.editSchedulePlan) OutlinedButton(onClick = onEdit, shape = MaterialTheme.shapes.small, modifier = Modifier.weight(1f)) { Text("Edit") }
             }
-            if (t.status != ActivityStatus.COMPLETED) {
+            if (pa.logProgress && t.status != ActivityStatus.COMPLETED) {
                 TextButton(onClick = onMarkComplete) { Text("Mark complete today") }
             }
 
@@ -305,15 +306,16 @@ internal fun ActivityDetailSheet(
                             log.quantityDone.takeIf { it > 0 }?.let { formatQuantity(round1(it), a.unit) },
                             log.percentComplete?.let { "${formatPercent(it)} total" },
                             log.labourCount.takeIf { it > 0 }?.let { "$it workers" },
-                            log.notes.takeIf { it.isNotBlank() }
+                            log.notes.takeIf { it.isNotBlank() },
+                            com.aarush.cpm.ui.common.enteredByName(log.enteredBy)?.let { "by $it" }
                         ).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                     }
                     // Previously removed immediately; now confirms first (and the screen offers Undo).
-                    TextButton(onClick = { pendingLogRemoval = log }) { Text("Remove") }
+                    if (pa.logProgress) TextButton(onClick = { pendingLogRemoval = log }) { Text("Remove") }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            TextButton(onClick = { confirmDelete = true }) { Text("Delete activity", color = MaterialTheme.colorScheme.error) }
+            if (pa.editSchedulePlan) TextButton(onClick = { confirmDelete = true }) { Text("Delete activity", color = MaterialTheme.colorScheme.error) }
         }
     }
     if (confirmDelete) {

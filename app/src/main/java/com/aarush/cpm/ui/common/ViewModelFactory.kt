@@ -47,6 +47,9 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
             modelClass.isAssignableFrom(com.aarush.cpm.ui.material.MaterialStatusViewModel::class.java) ->
                 com.aarush.cpm.ui.material.MaterialStatusViewModel(container.materialRepository) as T
 
+            modelClass.isAssignableFrom(com.aarush.cpm.ui.team.TeamViewModel::class.java) ->
+                com.aarush.cpm.ui.team.TeamViewModel(container.accessRepository, container.projectRepository) as T
+
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

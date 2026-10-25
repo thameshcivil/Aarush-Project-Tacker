@@ -90,5 +90,7 @@ data class ActivityProgressLog(
     val percentComplete: Double? = null,
     val labourCount: Int = 0,
     val notes: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** Device ID of the phone that logged this (v10); null for older rows. */
+    val enteredBy: String? = null
 )

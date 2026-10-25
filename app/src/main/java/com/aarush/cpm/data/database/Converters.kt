@@ -53,4 +53,9 @@ class Converters {
     fun fromTransactionDirection(v: TransactionDirection): String = v.name
     @TypeConverter
     fun toTransactionDirection(v: String): TransactionDirection = TransactionDirection.valueOf(v)
+
+    @TypeConverter
+    fun fromTeamRole(v: TeamRole): String = v.name
+    @TypeConverter
+    fun toTeamRole(v: String): TeamRole = runCatching { TeamRole.valueOf(v) }.getOrDefault(TeamRole.VIEWER)
 }

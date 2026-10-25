@@ -42,9 +42,10 @@ private val FigureCell = FigureStyle.copy(fontSize = 15.sp, letterSpacing = 0.sp
 /** Project value, shown plainly at the top of the screen. Tap (or the button) edits area & rate. */
 @Composable
 internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, modifier: Modifier = Modifier, compoundWallValue: Double = 0.0) {
+    val canEdit = com.aarush.cpm.ui.common.LocalProjectAccess.current.editSetup
     Column(modifier.fillMaxWidth()) {
         Column(
-            Modifier.fillMaxWidth().clickable(onClickLabel = "Edit area and rate", onClick = onEditAreaRate)
+            Modifier.fillMaxWidth().clickable(enabled = canEdit, onClickLabel = "Edit area and rate", onClick = onEditAreaRate)
                 .padding(vertical = 4.dp)
         ) {
             SectionLabel("Project value (Budget 1)")
@@ -67,7 +68,7 @@ internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, mo
             Text(listOf(details, who).filter { it.isNotBlank() }.joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
         }
-        TextButton(onClick = onEditAreaRate, contentPadding = PaddingValues(start = 0.dp, top = 8.dp, end = 4.dp, bottom = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+        if (canEdit) TextButton(onClick = onEditAreaRate, contentPadding = PaddingValues(start = 0.dp, top = 8.dp, end = 4.dp, bottom = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
             Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("Edit area & rate")

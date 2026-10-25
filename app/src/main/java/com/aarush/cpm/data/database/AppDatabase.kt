@@ -34,7 +34,9 @@ import com.aarush.cpm.data.entity.*
         BOQNotation::class,
         MaterialRateCard::class,
         ActivityProgressLog::class,
-        VendorWork::class
+        VendorWork::class,
+        TeamDevice::class,
+        ProjectMember::class
     ],
     version = AppDatabase.VERSION,
     exportSchema = true
@@ -65,6 +67,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun materialRateCardDao(): MaterialRateCardDao
     abstract fun activityProgressLogDao(): ActivityProgressLogDao
     abstract fun vendorWorkDao(): VendorWorkDao
+    abstract fun teamDao(): TeamDao
 
     companion object {
         /** File name of the underlying SQLite database — also used by the backup/restore
@@ -73,7 +76,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** Current schema version. Also used by restore-from-backup to reject a backup made
          *  by a newer app version (Room cannot downgrade a schema). */
-        const val VERSION = 9
+        const val VERSION = 10
 
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -283,6 +286,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v9 → v10: team roles. Adds team_devices (one row per phone: name + role) and
+         *  project_members (which phones work on which project, with a lead), plus a nullable
+         *  enteredBy device ID on expenses and progress logs. Additive only; existing rows get
+         *  enteredBy = NULL and the first phone to open v10 registers itself as Owner. */
+        internal const val SQL_9_10_CREATE_TEAM_DEVICES =
+            "CREATE TABLE IF NOT EXISTS team_devices (deviceId TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL, " +
+                "createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL, PRIMARY KEY(deviceId))"
+        internal const val SQL_9_10_CREATE_PROJECT_MEMBERS =
+            "CREATE TABLE IF NOT EXISTS project_members (projectId INTEGER NOT NULL, deviceId TEXT NOT NULL, " +
+                "isLead INTEGER NOT NULL, PRIMARY KEY(projectId, deviceId))"
+        internal val SQL_9_10_ADD_ENTERED_BY = listOf(
+            "ALTER TABLE expenses ADD COLUMN enteredBy TEXT",
+            "ALTER TABLE activity_progress_logs ADD COLUMN enteredBy TEXT"
+        )
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_9_10_CREATE_TEAM_DEVICES)
+                db.execSQL(SQL_9_10_CREATE_PROJECT_MEMBERS)
+                SQL_9_10_ADD_ENTERED_BY.forEach { db.execSQL(it) }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -290,7 +316,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build().also { INSTANCE = it }
             }
 

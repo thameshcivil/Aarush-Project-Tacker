@@ -309,6 +309,7 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
     }
     LaunchedEffect(state.savedMessage) { state.savedMessage?.let { snackbarHostState?.showSnackbar(it) } }
 
+    val canEdit = com.aarush.cpm.ui.common.LocalProjectAccess.current.editSetup
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface,
@@ -322,6 +323,11 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
             state.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
             }
+            if (!canEdit) {
+                Text("View only. Only the Owner or a project manager can change project settings, so nothing here is saved from this phone.",
+                    style = MaterialTheme.typography.bodySmall, color = com.aarush.cpm.ui.theme.SiteTheme.colors.muted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
             when (tab) {
                 0 -> ProjectTab(state, viewModel)
                 1 -> CoefficientsTab(state = state, viewModel = viewModel)
@@ -329,7 +335,7 @@ fun ProjectSettingsTabContent(projectId: Long, viewModel: ProjectSettingsViewMod
             }
         }
 
-        ExtendedFloatingActionButton(
+        if (canEdit) ExtendedFloatingActionButton(
             onClick = { if (tab == 0) viewModel.saveProject() else viewModel.saveTables() },
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,

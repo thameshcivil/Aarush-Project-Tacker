@@ -21,6 +21,12 @@ import com.aarush.cpm.ui.boq.BOQTabContent
 import com.aarush.cpm.ui.boq.BOQViewModel
 import com.aarush.cpm.ui.common.AppViewModelFactory
 import com.aarush.cpm.ui.common.SectionLabel
+import com.aarush.cpm.ui.common.AccessNotice
+import com.aarush.cpm.ui.common.EmptyState
+import com.aarush.cpm.ui.common.LocalAccess
+import com.aarush.cpm.ui.common.LocalProjectAccess
+import com.aarush.cpm.ui.team.ProjectTeamContent
+import com.aarush.cpm.ui.team.TeamViewModel
 import com.aarush.cpm.ui.expense.ExpenseTabContent
 import com.aarush.cpm.ui.expense.ExpenseViewModel
 import com.aarush.cpm.ui.material.MaterialStatusTabContent
@@ -46,6 +52,7 @@ internal enum class ProjectTab(val label: String, val icon: ImageVector) {
 internal enum class MoreDestination(val label: String, val hint: String, val icon: ImageVector) {
     Materials("Materials", "Stock, purchases and labour contract balances", Icons.Filled.Inventory),
     Vendors("Vendors", "Contracts, rates and payments", Icons.Filled.Engineering),
+    Team("Project team", "Lead coordinator and the phones on this project", Icons.Filled.Groups),
     Settings("Project settings", "Details, cost distribution, coefficients and rates", Icons.Filled.Tune)
 }
 
@@ -70,6 +77,9 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
     val expenseViewModel: ExpenseViewModel = viewModel(factory = factory)
     val vendorViewModel: VendorViewModel = viewModel(factory = factory)
     val settingsViewModel: ProjectSettingsViewModel = viewModel(factory = factory)
+    val teamViewModel: TeamViewModel = viewModel(factory = factory)
+    val access = LocalAccess.current
+    val projectAccess = access.forProject(projectId)
     val projectName by homeViewModel.projectName.collectAsState()
     LaunchedEffect(projectId) { homeViewModel.observeName(projectId) }
 
@@ -95,7 +105,16 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        if (access.loaded && !access.canOpenProject(projectId)) {
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                EmptyState("Not assigned to this phone", "Ask the Owner to add this phone to the project in Settings > Team & devices.")
+            }
+            return@Scaffold
+        }
+        CompositionLocalProvider(LocalProjectAccess provides projectAccess) {
+        Column(Modifier.padding(padding).fillMaxSize()) {
+        AccessNotice(access.role, projectAccess)
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
                 ProjectTab.Overview -> ProjectOverviewTabContent(
                     projectId = projectId, viewModel = homeViewModel,
@@ -116,8 +135,11 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
                     MoreDestination.Materials -> MaterialStatusTabContent(projectId = projectId, viewModel = materialStatusViewModel)
                     MoreDestination.Vendors -> VendorTabContent(projectId = projectId, viewModel = vendorViewModel, snackbarHostState = snackbarHostState)
                     MoreDestination.Settings -> ProjectSettingsTabContent(projectId = projectId, viewModel = settingsViewModel, snackbarHostState = snackbarHostState)
+                    MoreDestination.Team -> ProjectTeamContent(projectId = projectId, viewModel = teamViewModel)
                 }
             }
+        }
+        }
         }
     }
 }

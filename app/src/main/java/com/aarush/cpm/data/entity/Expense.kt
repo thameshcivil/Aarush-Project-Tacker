@@ -41,5 +41,7 @@ data class Expense(
     val photoUri: String? = null,
     val notes: String = "",
     val isDemoData: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** Device ID of the phone that entered this line (v10); null for older rows. */
+    val enteredBy: String? = null
 )

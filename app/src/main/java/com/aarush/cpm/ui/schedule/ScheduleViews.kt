@@ -85,10 +85,12 @@ internal fun ScheduleTopRow(
             IconButton(onClick = { open = true }, enabled = toolsEnabled) {
                 Icon(Icons.Filled.MoreVert, contentDescription = "Schedule tools")
             }
+            val canPlan = com.aarush.cpm.ui.common.LocalProjectAccess.current.editSchedulePlan
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                ToolItem("Update quantities from BOQ", "Pull the latest BOQ measurements and recompute durations", Icons.Filled.Sync) { open = false; onSync() }
-                ToolItem("Re-baseline", "Re-plan baseline dates from a new start date", Icons.Filled.Update) { open = false; onRebaseline() }
+                if (canPlan) ToolItem("Update quantities from BOQ", "Pull the latest BOQ measurements and recompute durations", Icons.Filled.Sync) { open = false; onSync() }
+                if (canPlan) ToolItem("Re-baseline", "Re-plan baseline dates from a new start date", Icons.Filled.Update) { open = false; onRebaseline() }
                 ToolItem("Export to CSV", "Open the schedule in Excel or Sheets", Icons.Filled.FileDownload) { open = false; onExport() }
+                if (canPlan) {
                 HorizontalDivider()
                 ToolItem("Regenerate from template", "Start again. Progress logs are cleared.", Icons.Filled.Refresh) { open = false; onRegenerate() }
                 DropdownMenuItem(
@@ -96,6 +98,7 @@ internal fun ScheduleTopRow(
                     leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
                     onClick = { open = false; onDelete() }
                 )
+                }
             }
         }
     }
@@ -555,7 +558,10 @@ private fun LogEntryRow(log: ActivityProgressLog, name: String, floorLabel: Stri
             }
             if (what.isNotBlank()) Text(what, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             if (log.notes.isNotBlank()) Text(log.notes, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            com.aarush.cpm.ui.common.enteredByName(log.enteredBy)?.let {
+                Text("by $it", style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
+            }
         }
-        TextButton(onClick = onRemove, modifier = Modifier.heightIn(min = 48.dp)) { Text("Remove") }
+        if (com.aarush.cpm.ui.common.LocalProjectAccess.current.logProgress) TextButton(onClick = onRemove, modifier = Modifier.heightIn(min = 48.dp)) { Text("Remove") }
     }
 }

@@ -140,6 +140,9 @@ internal fun OverviewHeader(summary: ProjectSummary, report: ScheduleReport?) {
     val ev = report?.earnedValue?.takeIf { report.hasSchedule }
     Column(Modifier.fillMaxWidth()) {
         ProjectIdentity(p, large = true)
+        LocalTeam.current?.leadFor(p.id)?.let { lead ->
+            Text("Coordinator: ${lead.name}", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+        }
         Spacer(Modifier.height(16.dp))
         // Live schedule figures when a schedule exists (same numbers as Schedule > Key figures);
         // otherwise the project's last recorded progress, as before.

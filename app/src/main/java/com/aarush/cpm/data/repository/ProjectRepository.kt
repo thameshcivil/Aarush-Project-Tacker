@@ -180,6 +180,7 @@ class ProjectRepository(private val db: AppDatabase) {
         db.expenseDao().deleteForProject(id)
         db.clientPaymentDao().deleteForProject(id)
         db.vendorWorkDao().deleteForProject(id)
+        db.teamDao().deleteForProject(id)
         db.vendorDao().deleteForProject(id)
         db.materialRateCardDao().deleteForProject(id)
         db.materialCoefficientDao().deleteForProject(id)

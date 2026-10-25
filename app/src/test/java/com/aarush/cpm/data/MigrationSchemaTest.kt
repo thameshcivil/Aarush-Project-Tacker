@@ -20,11 +20,11 @@ class MigrationSchemaTest {
 
     /** On CI the schema must exist, so the check can never be silently skipped there. */
     private fun requireSchema() {
-        if (System.getenv("CI") == "true") assertTrue("Room schema 9.json not found (cwd ${File(".").absolutePath})", schemaFile != null)
+        if (System.getenv("CI") == "true") assertTrue("Room schema ${AppDatabase.VERSION}.json not found (cwd ${File(".").absolutePath})", schemaFile != null)
         assumeTrue("Room schema not generated", schemaFile != null)
     }
 
-    private fun norm(sql: String) = sql.replace("`", "").replace("\${TABLE_NAME}", "vendor_works")
+    private fun norm(sql: String, table: String = "vendor_works") = sql.replace("`", "").replace("\${TABLE_NAME}", table)
         .replace(Regex("\\s+"), " ").replace("( ", "(").replace(" )", ")").trim()
 
     /** The "createSql" of one entity in the Room schema JSON. */
@@ -50,6 +50,32 @@ class MigrationSchemaTest {
         AppDatabase.SQL_8_9_ADD_AREA_COLUMNS.forEach { sql ->
             val col = Regex("ADD COLUMN (\\w+) (\\w+ NOT NULL)").find(sql)!!.groupValues
             assertTrue("${col[1]} ${col[2]}", expected.contains("${col[1]} ${col[2]}"))
+        }
+    }
+
+    // ---------------------------------------------------------------- v9 → v10 (team roles)
+
+    @Test fun teamDevicesTableMatchesRoom() {
+        requireSchema()
+        val json = schemaFile!!.readText()
+        assertEquals(norm(createSql(json, "team_devices"), "team_devices"), norm(AppDatabase.SQL_9_10_CREATE_TEAM_DEVICES, "team_devices"))
+    }
+
+    @Test fun projectMembersTableMatchesRoom() {
+        requireSchema()
+        val json = schemaFile!!.readText()
+        assertEquals(norm(createSql(json, "project_members"), "project_members"), norm(AppDatabase.SQL_9_10_CREATE_PROJECT_MEMBERS, "project_members"))
+    }
+
+    @Test fun enteredByColumnsMatchRoom() {
+        requireSchema()
+        val json = schemaFile!!.readText()
+        AppDatabase.SQL_9_10_ADD_ENTERED_BY.forEach { sql ->
+            val m = Regex("ALTER TABLE (\\w+) ADD COLUMN (\\w+ TEXT)").find(sql)!!.groupValues
+            val table = norm(createSql(json, m[1]), m[1])
+            // Nullable in Room (no NOT NULL), exactly like the migration adds it.
+            assertTrue(table, table.contains("${m[2]},") || table.contains("${m[2]})"))
+            assertTrue(table, !table.contains("${m[2]} NOT NULL"))
         }
     }
 }

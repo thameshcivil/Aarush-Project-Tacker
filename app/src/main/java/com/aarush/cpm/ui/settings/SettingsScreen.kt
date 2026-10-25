@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -105,8 +108,10 @@ class SettingsViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
+fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}, onOpenTeam: () -> Unit = {}) {
     val context = LocalContext.current
+    val access = com.aarush.cpm.ui.common.LocalAccess.current
+    val team = com.aarush.cpm.ui.common.LocalTeam.current
     var showRestoreConfirm by remember { mutableStateOf<Uri?>(null) }
 
     val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -126,6 +131,25 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(12.dp))
             }
+            SectionLabel("Team")
+            Spacer(Modifier.height(6.dp))
+            AppCard(Modifier.fillMaxWidth(), onClick = onOpenTeam) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Groups, contentDescription = null, tint = SiteTheme.colors.muted)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Team & devices", style = MaterialTheme.typography.titleSmall)
+                        val me = team?.thisDevice
+                        Text(
+                            if (me != null) "This phone: ${me.name}, ${me.role.label}" else "Phone names, roles and projects",
+                            style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted
+                        )
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = SiteTheme.colors.muted)
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
             SectionLabel("Backup & restore")
             Spacer(Modifier.height(6.dp))
             AppCard(Modifier.fillMaxWidth()) {
@@ -146,6 +170,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
                         Spacer(Modifier.width(8.dp))
                         Text(if (viewModel.isBackingUp) "Backing up…" else "Back up now")
                     }
+                    if (access.canRestore) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { restoreLauncher.launch(arrayOf("*/*")) },
@@ -156,6 +181,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
                         Icon(Icons.Filled.CloudDownload, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (viewModel.isRestoring) "Restoring…" else "Restore from backup")
+                    }
+                    } else {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Only the Owner can restore a backup.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
                     }
                 }
             }
@@ -171,6 +200,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
                 )
             }
 
+            if (access.canManageDemoData) {
             Spacer(Modifier.height(20.dp))
             SectionLabel("Demo data")
             Spacer(Modifier.height(6.dp))
@@ -188,6 +218,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
                         }
                     }
                 }
+            }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -211,7 +242,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}) {
             Spacer(Modifier.height(8.dp))
             Text("Aarush Construction & Consultant Works", style = MaterialTheme.typography.titleSmall)
             Text("Aarush Construction Project Management System, v1.1.0", style = MaterialTheme.typography.bodySmall)
-            Text("Offline-first. All data stored locally on this device.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            Text("Offline-first. All data is stored on this phone.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(32.dp))
         }
     }

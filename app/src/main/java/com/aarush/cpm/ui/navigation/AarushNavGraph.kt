@@ -1,11 +1,11 @@
 package com.aarush.cpm.ui.navigation
 
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -18,6 +18,10 @@ import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import com.aarush.cpm.di.AppContainer
 import com.aarush.cpm.ui.common.AppViewModelFactory
+import com.aarush.cpm.ui.common.LocalAccess
+import com.aarush.cpm.ui.common.LocalTeam
+import com.aarush.cpm.ui.team.TeamScreen
+import com.aarush.cpm.ui.team.TeamViewModel
 import com.aarush.cpm.ui.dashboard.DashboardScreen
 import com.aarush.cpm.ui.dashboard.DashboardViewModel
 import com.aarush.cpm.ui.login.LoginScreen
@@ -34,6 +38,7 @@ object Routes {
     const val CREATE_PROJECT = "create_project"
     const val PROJECT = "project/{projectId}"
     const val SETTINGS = "settings"
+    const val TEAM = "team"
 
     fun project(id: Long) = "project/$id"
 }
@@ -54,7 +59,18 @@ fun AarushNavGraph(appContainer: AppContainer) {
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = currentRoute == Routes.DASHBOARD || currentRoute == Routes.SETTINGS
 
+    // Team roles: who this phone is and what it may change, for every screen below.
+    val team by appContainer.accessRepository.team.collectAsState(initial = null)
+    val access = team?.access ?: com.aarush.cpm.domain.access.Access.LOADING
+    val preview = team?.preview
+
+    CompositionLocalProvider(LocalTeam provides team, LocalAccess provides access) {
+    Column(Modifier.fillMaxSize()) {
+    if (preview != null) {
+        PreviewBanner(preview.name, preview.role.label, onStop = { appContainer.accessRepository.stopPreview() })
+    }
     Scaffold(
+        modifier = if (preview != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier,
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 0.dp) {
@@ -117,8 +133,31 @@ fun AarushNavGraph(appContainer: AppContainer) {
                 val vm: SettingsViewModel = viewModel(factory = factory)
                 SettingsScreen(viewModel = vm, onSignOut = {
                     navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
-                })
+                }, onOpenTeam = { navController.navigate(Routes.TEAM) })
             }
+            composable(Routes.TEAM) {
+                val vm: TeamViewModel = viewModel(factory = factory)
+                TeamScreen(viewModel = vm, onBack = { navController.popBackStack() })
+            }
+        }
+    }
+    }
+    }
+}
+
+/** Shown on every screen while the Owner previews another role, so it is never forgotten. */
+@Composable
+private fun PreviewBanner(name: String, role: String, onStop: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Previewing as $name ($role)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) { Text("Stop") }
         }
     }
 }

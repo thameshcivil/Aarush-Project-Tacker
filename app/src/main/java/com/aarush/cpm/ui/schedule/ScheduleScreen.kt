@@ -205,8 +205,14 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
     }
     val exportFileName = "Schedule_${state.project?.name?.replace(Regex("[^A-Za-z0-9]+"), "_") ?: "project"}.csv"
 
+    val pa = com.aarush.cpm.ui.common.LocalProjectAccess.current
     Box(Modifier.fillMaxSize()) {
-        if (!report.hasSchedule) {
+        if (!report.hasSchedule && !pa.editSchedulePlan) {
+            EmptyState(
+                title = "No construction schedule yet",
+                body = "The Owner or a project manager can generate the schedule. You'll see it here once it's ready."
+            )
+        } else if (!report.hasSchedule) {
             EmptyState(
                 title = "No construction schedule yet",
                 body = "Generate the complete residential schedule: approvals, foundation, each floor's frame and masonry, services, finishes and handover. " +
@@ -240,14 +246,14 @@ fun ScheduleTabContent(projectId: Long, viewModel: ScheduleViewModel, snackbarHo
                     ScheduleSection.LOG -> ScheduleSiteLog(report, onDeleteLog = removeLog)
                 }
             }
-            when (section) {
-                ScheduleSection.ACTIVITIES -> ExtendedFloatingActionButton(
+            when {
+                section == ScheduleSection.ACTIVITIES -> if (pa.editSchedulePlan) ExtendedFloatingActionButton(
                     onClick = { adding = true }, shape = MaterialTheme.shapes.small,
                     containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
                     icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Activity") },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
                 )
-                else -> ExtendedFloatingActionButton(
+                else -> if (pa.logProgress) ExtendedFloatingActionButton(
                     onClick = { pickActivityToLog = true }, shape = MaterialTheme.shapes.small,
                     containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
                     icon = { Icon(Icons.Filled.EditNote, null) }, text = { Text("Log progress") },

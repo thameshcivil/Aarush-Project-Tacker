@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.aarush.cpm.di.AppContainer
 import com.aarush.cpm.ui.navigation.AarushNavGraph
 import com.aarush.cpm.ui.theme.AarushCPMTheme
@@ -20,6 +22,8 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         val appContainer = AppContainer(applicationContext)
+        // Join the team table (first phone on v10 becomes Owner; new phones join as Viewer).
+        lifecycleScope.launch { runCatching { appContainer.accessRepository.registerThisDevice() } }
 
         setContent {
             AarushCPMTheme {

@@ -16,6 +16,10 @@ class AppContainer(context: Context) {
      *  directly against the live connection before copying the database file. */
     val database: AppDatabase get() = db
 
+    /** Created eagerly: it sets CurrentDevice.id, which stamps "entered by" on new records. */
+    val deviceIdentity = DeviceIdentity(context.applicationContext)
+    val accessRepository by lazy { AccessRepository(db, deviceIdentity, authRepository) }
+
     val authRepository by lazy { AuthRepository(db) }
     val authPreferencesRepository by lazy { AuthPreferencesRepository(context.applicationContext) }
     val projectRepository by lazy { ProjectRepository(db) }

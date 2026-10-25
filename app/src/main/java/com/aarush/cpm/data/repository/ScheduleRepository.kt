@@ -339,7 +339,7 @@ class ScheduleRepository(private val db: AppDatabase) {
             ActivityProgressLog(
                 projectId = activity.projectId, activityId = activityId, date = WorkCalendar.toEpochMillis(date),
                 quantityDone = quantityDone.coerceAtLeast(0.0), percentComplete = percentComplete?.coerceIn(0.0, 100.0),
-                labourCount = labourCount.coerceAtLeast(0), notes = notes
+                labourCount = labourCount.coerceAtLeast(0), notes = notes, enteredBy = CurrentDevice.id
             )
         )
         bookConsumption(activity, logId, date, quantityDone)

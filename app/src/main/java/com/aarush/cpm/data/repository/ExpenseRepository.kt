@@ -30,14 +30,18 @@ class ExpenseRepository(private val db: AppDatabase) {
 
     suspend fun getForProject(projectId: Long): List<Expense> = db.expenseDao().getForProject(projectId)
 
-    suspend fun addExpense(expense: Expense): Long = db.withTransaction {
+    suspend fun addExpense(input: Expense): Long = db.withTransaction {
+        // Stamp the phone that entered it (kept as-is when an Undo re-inserts a deleted line).
+        val expense = input.copy(enteredBy = input.enteredBy ?: CurrentDevice.id)
         val expenseId = db.expenseDao().insert(expense)
         applySideEffects(expense.copy(id = expenseId))
         expense.vendorId?.let { recalculateVendorPaid(it) }
         expenseId
     }
 
-    suspend fun updateExpense(oldExpense: Expense, newExpense: Expense) = db.withTransaction {
+    suspend fun updateExpense(oldExpense: Expense, edited: Expense) = db.withTransaction {
+        // Editing never changes who originally entered the line.
+        val newExpense = edited.copy(enteredBy = oldExpense.enteredBy ?: edited.enteredBy)
         db.materialPurchaseDao().deleteForExpense(oldExpense.id)
         db.expenseDao().update(newExpense)
         applySideEffects(newExpense)

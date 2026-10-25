@@ -195,7 +195,7 @@ fun VendorTabContent(projectId: Long, viewModel: VendorViewModel, snackbarHostSt
             }
         }
 
-        FloatingActionButton(
+        if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editVendors) FloatingActionButton(
             onClick = { showAddDialog = true },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
         ) { Icon(Icons.Filled.Add, "Add vendor") }
@@ -278,12 +278,13 @@ internal fun VendorCard(
             if (vendor.paymentTerms.isNotBlank()) Text("Terms: ${vendor.paymentTerms}", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
 
             // Extra work on this contract (e.g. a compound wall); included in "Contract" above.
+            val canEdit = com.aarush.cpm.ui.common.LocalProjectAccess.current.editVendors
             if (works.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 SectionLabel("Extra work (included in contract)")
                 works.forEach { w ->
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClickLabel = "Edit work") { onEditWork(w) },
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = canEdit, onClickLabel = "Edit work") { onEditWork(w) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -295,7 +296,7 @@ internal fun VendorCard(
                     }
                 }
             }
-            TextButton(onClick = onAddWork, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(start = 0.dp, top = 8.dp, end = 8.dp, bottom = 8.dp)) {
+            if (canEdit) TextButton(onClick = onAddWork, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(start = 0.dp, top = 8.dp, end = 8.dp, bottom = 8.dp)) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Add work (e.g. compound wall)")
@@ -320,6 +321,7 @@ internal fun VendorCard(
                         }
                     }
                 }
+                if (canEdit) {
                 Spacer(Modifier.height(8.dp))
                 Row {
                     TextButton(onClick = onEdit) {
@@ -329,6 +331,7 @@ internal fun VendorCard(
                     }
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = onDelete) { Text("Delete") }
+                }
                 }
             }
         }

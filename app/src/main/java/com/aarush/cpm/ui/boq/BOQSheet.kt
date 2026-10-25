@@ -179,11 +179,12 @@ internal fun BOQSheet(
             }
         }
 
-        copiedItem?.let { copied ->
+        val canEdit = com.aarush.cpm.ui.common.LocalProjectAccess.current.editMeasurements
+        copiedItem?.takeIf { canEdit }?.let { copied ->
             CopiedBar(copied, onPaste = onPaste, onClear = onClearCopy,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 84.dp))
         }
-        FloatingActionButton(
+        if (canEdit) FloatingActionButton(
             onClick = onAdd,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -237,7 +238,7 @@ private fun GroupHeading(title: String, subtitle: String, materials: String, exp
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                 Text(materials, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             }
-            if (expanded) {
+            if (expanded && com.aarush.cpm.ui.common.LocalProjectAccess.current.editMeasurements) {
                 IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, "Copy measurements from $title", Modifier.size(20.dp)) }
             }
             Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null,
@@ -265,7 +266,7 @@ private fun SubGroupHeading(title: String, totals: String, materials: String, ex
                 Text(totals, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
                 Text(materials, style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted)
             }
-            if (expanded) {
+            if (expanded && com.aarush.cpm.ui.common.LocalProjectAccess.current.editMeasurements) {
                 IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, "Copy measurements from $title", Modifier.size(20.dp)) }
             }
             Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null,
@@ -338,7 +339,9 @@ private fun MeasurementRow(item: BOQItem, stacked: Boolean, onEdit: () -> Unit, 
                 }
             }
         }
-        RowMenu(item, onEdit, onCopy, onDelete)
+        // Read-only phones: same width kept so the columns still line up with the headings.
+        if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editMeasurements) RowMenu(item, onEdit, onCopy, onDelete)
+        else Spacer(Modifier.width(48.dp))
     }
 }
 
