@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "757629365751",
+    "project_id": "aarush-cpm",
+    "storage_bucket": "aarush-cpm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757629365751:android:44624fbc26d54db113d2f2",
+        "android_client_info": {
+          "package_name": "com.aarush.cpm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "757629365751-0v3mdh9ebolh0jntccu1qm7cm05bl4nv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aarush.cpm",
+            "certificate_hash": "f0895d6a5a1fdb37622288f6017481a8003b73d1"
+          }
+        },
+        {
+          "client_id": "757629365751-cvkc6otsur6qt29mk98h4itbqhmno9ag.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfnsGRq7UF3J8FWhE2f3kb7EFTrdGw8sg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "757629365751-cvkc6otsur6qt29mk98h4itbqhmno9ag.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

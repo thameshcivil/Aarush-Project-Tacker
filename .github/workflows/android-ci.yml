@@ -49,7 +49,22 @@ jobs:
           grep -E "^e: |What went wrong|FAILED|Exception|Caused by|expected" gradle-test.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
           for f in app/build/test-results/testDebugUnitTest/*.xml; do grep -A3 "<failure" "$f" | head -8 | while IFS= read -r line; do echo "::error file=$(basename $f)::${line//%/%25}"; done; done
 
+      - name: Set up app signing key
+        env:
+          KS_B64: ${{ secrets.AARUSH_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/aarush.jks"
+            echo "AARUSH_KEYSTORE_FILE=$RUNNER_TEMP/aarush.jks" >> "$GITHUB_ENV"
+            echo "::notice::APK signed with the fixed Aarush key"
+          else
+            echo "::warning::AARUSH_KEYSTORE_B64 secret not set: APK uses a temporary key (Google sign-in won't work, updates need uninstall)"
+          fi
+
       - name: Build debug APK
+        env:
+          AARUSH_KEYSTORE_PASSWORD: ${{ secrets.AARUSH_KEYSTORE_PASSWORD }}
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Upload debug APK

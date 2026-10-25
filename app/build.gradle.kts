@@ -24,12 +24,29 @@ android {
         }
     }
 
+    // One fixed signing key for every build (CI decodes it from the AARUSH_KEYSTORE_B64 secret).
+    // Same key = updates install over the old app without uninstalling, and Google sign-in
+    // works (Firebase knows this key's SHA-1). Without the secret, Gradle's temporary key is used.
+    val aarushKeystore = System.getenv("AARUSH_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (aarushKeystore != null) {
+            create("aarush") {
+                storeFile = aarushKeystore
+                storePassword = System.getenv("AARUSH_KEYSTORE_PASSWORD")
+                keyAlias = "aarush"
+                keyPassword = System.getenv("AARUSH_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (aarushKeystore != null) signingConfig = signingConfigs.getByName("aarush")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
+            if (aarushKeystore != null) signingConfig = signingConfigs.getByName("aarush")
             isMinifyEnabled = false
         }
     }

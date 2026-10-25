@@ -7,5 +7,5 @@
          it requires registering your app's signing certificate fingerprint with Google, which
          only you can do. Left as a placeholder so the app still builds without it (the button
          will show a clear "not configured yet" message instead of crashing). -->
-    <string name="google_web_client_id">REPLACE_WITH_YOUR_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+    <string name="google_web_client_id">757629365751-cvkc6otsur6qt29mk98h4itbqhmno9ag.apps.googleusercontent.com</string>
 </resources>
