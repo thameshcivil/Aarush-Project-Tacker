@@ -91,7 +91,8 @@ class AccessRepository(
 
     val team: Flow<TeamState> = combine(
         dao.observeDevices(), dao.observeMembers(), preview,
-        pinChanged.map { db.appSettingsDao().get(OWNER_PIN_KEY) != null }
+        // Watched (not just re-read after a local change) so a PIN set on another phone shows.
+        db.appSettingsDao().observeAll().map { all -> all.any { it.key == OWNER_PIN_KEY } }
     ) { devices, members, previewing, pinSet ->
         TeamState(identity.id, devices, members, previewing, pinSet)
     }

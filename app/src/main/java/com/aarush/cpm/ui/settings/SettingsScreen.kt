@@ -35,8 +35,70 @@ class SettingsViewModel(
     private val sampleDataSeeder: SampleDataSeeder,
     private val database: AppDatabase,
     private val projectRepository: ProjectRepository,
-    private val authPreferences: AuthPreferencesRepository
+    private val authPreferences: AuthPreferencesRepository,
+    private val cloudSync: com.aarush.cpm.data.sync.CloudSync,
+    private val accessRepository: com.aarush.cpm.data.repository.AccessRepository
 ) : ViewModel() {
+    // ---------------------------------------------------------------- cloud sync (Phase 2)
+    val syncStatus = cloudSync.status
+    /** Set after sign-in when the person must choose: upload this phone, or take the cloud copy. */
+    var syncChoice by mutableStateOf<com.aarush.cpm.data.sync.CloudState?>(null)
+        private set
+    var syncWorking by mutableStateOf(false)
+        private set
+
+    fun turnOnSync(context: android.content.Context) {
+        viewModelScope.launch {
+            syncWorking = true
+            statusMessage = null
+            val account = com.aarush.cpm.ui.login.GoogleSignInHelper.signIn(context, context.getString(com.aarush.cpm.R.string.google_web_client_id))
+            val token = account.getOrNull()?.idToken
+            if (token.isNullOrBlank()) {
+                statusMessage = "Google sign-in didn't finish: ${account.exceptionOrNull()?.message ?: "no account chosen"}"
+                syncWorking = false
+                return@launch
+            }
+            cloudSync.connect(token).fold(
+                onSuccess = { state ->
+                    if (state == com.aarush.cpm.data.sync.CloudState.RESUME) {
+                        cloudSync.resume().onFailure { statusMessage = "Couldn't resume sync: ${it.message}" }
+                    } else syncChoice = state
+                },
+                onFailure = { statusMessage = it.message }
+            )
+            syncWorking = false
+        }
+    }
+
+    fun confirmFirstUpload() {
+        syncChoice = null
+        viewModelScope.launch {
+            syncWorking = true
+            statusMessage = cloudSync.uploadFirstCopy().fold(
+                onSuccess = { "Cloud sync is on. This phone's projects are now the team's shared copy." },
+                onFailure = { "Upload failed: ${it.message}. Nothing on this phone was changed; try again." }
+            )
+            syncWorking = false
+        }
+    }
+
+    fun confirmUseCloudCopy() {
+        syncChoice = null
+        viewModelScope.launch {
+            syncWorking = true
+            statusMessage = cloudSync.replaceWithCloudCopy { accessRepository.registerThisDevice() }.fold(
+                onSuccess = { "This phone now has the team's projects. A safety copy of its old data was saved as ${it.name} " +
+                    "(Files > Android > data > com.aarush.cpm > files)." },
+                onFailure = { "Couldn't take the cloud copy: ${it.message}" }
+            )
+            syncWorking = false
+        }
+    }
+
+    fun cancelSyncChoice() { syncChoice = null; cloudSync.turnOff() }
+    fun syncNow() { viewModelScope.launch { cloudSync.syncNow() } }
+    fun turnOffSync() { cloudSync.turnOff(); statusMessage = "Cloud sync is off on this phone. Its data stays here." }
+
     var isSeeding by mutableStateOf(false)
         private set
     var isBackingUp by mutableStateOf(false)
@@ -131,6 +193,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}, onO
                 }
                 Spacer(Modifier.height(12.dp))
             }
+            CloudSyncSection(
+                status = viewModel.syncStatus.collectAsState().value,
+                working = viewModel.syncWorking,
+                canStartCloud = team?.ownAccess?.canManageTeam == true,
+                onTurnOn = { viewModel.turnOnSync(context) },
+                onSyncNow = viewModel::syncNow,
+                onTurnOff = viewModel::turnOffSync
+            )
+            Spacer(Modifier.height(20.dp))
             SectionLabel("Team")
             Spacer(Modifier.height(6.dp))
             AppCard(Modifier.fillMaxWidth(), onClick = onOpenTeam) {
@@ -242,9 +313,19 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}, onO
             Spacer(Modifier.height(8.dp))
             Text("Aarush Construction & Consultant Works", style = MaterialTheme.typography.titleSmall)
             Text("Aarush Construction Project Management System, v1.1.0", style = MaterialTheme.typography.bodySmall)
-            Text("Offline-first. All data is stored on this phone.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            Text("Works offline. With cloud sync on, projects are shared between the team's phones.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    viewModel.syncChoice?.let { choice ->
+        CloudChoiceDialog(
+            choice = choice,
+            isOwner = team?.ownAccess?.canManageTeam == true,
+            onUpload = viewModel::confirmFirstUpload,
+            onUseCloud = viewModel::confirmUseCloudCopy,
+            onCancel = viewModel::cancelSyncChoice
+        )
     }
 
     showRestoreConfirm?.let { uri ->

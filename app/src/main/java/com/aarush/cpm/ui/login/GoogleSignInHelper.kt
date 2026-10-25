@@ -15,7 +15,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingExcept
  * This is a one-time setup step only the app owner can do (it needs your app's signing
  * certificate fingerprint registered with Google), so it's left as a placeholder here.
  */
-data class GoogleAccountInfo(val email: String, val displayName: String)
+data class GoogleAccountInfo(val email: String, val displayName: String, val idToken: String = "")
 
 object GoogleSignInHelper {
 
@@ -54,7 +54,8 @@ object GoogleSignInHelper {
                 Result.success(
                     GoogleAccountInfo(
                         email = googleIdTokenCredential.id,
-                        displayName = googleIdTokenCredential.displayName ?: ""
+                        displayName = googleIdTokenCredential.displayName ?: "",
+                        idToken = googleIdTokenCredential.idToken
                     )
                 )
             } else {
