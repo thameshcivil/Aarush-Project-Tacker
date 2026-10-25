@@ -14,8 +14,11 @@ android {
         applicationId = "com.aarush.cpm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        // Every CI build gets a higher number, so phones see it as an update (App Distribution
+        // and Android both need the number to go up). Local builds stay at 2.
+        val ciBuild = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        versionCode = if (ciBuild != null) 100 + ciBuild else 2
+        versionName = if (ciBuild != null) "1.2.$ciBuild" else "1.2.0-local"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

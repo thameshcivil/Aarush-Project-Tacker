@@ -73,6 +73,30 @@ jobs:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
+      # Sends each build from main to the team's phones (Firebase App Distribution, group
+      # "team"). Needs the FIREBASE_DISTRIBUTION_KEY secret (a service account key); without
+      # it this step is skipped and the APK is only attached to the run as before.
+      - name: Send to team phones (Firebase App Distribution)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DIST_KEY: ${{ secrets.FIREBASE_DISTRIBUTION_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$DIST_KEY" ]; then
+            echo "::warning::FIREBASE_DISTRIBUTION_KEY secret not set: build not sent to phones"
+            exit 0
+          fi
+          echo "$DIST_KEY" > "$RUNNER_TEMP/dist-key.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/dist-key.json"
+          npm install -g firebase-tools@13 --silent
+          NOTES="$(git log -1 --pretty=%s) (build ${GITHUB_RUN_NUMBER})"
+          firebase appdistribution:distribute app/build/outputs/apk/debug/*.apk \
+            --app 1:757629365751:android:44624fbc26d54db113d2f2 \
+            --groups team \
+            --release-notes "$NOTES"
+          rm -f "$RUNNER_TEMP/dist-key.json"
+          echo "::notice::Build ${GITHUB_RUN_NUMBER} sent to the team group"
+
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
