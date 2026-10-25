@@ -7,6 +7,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -73,29 +76,21 @@ jobs:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
-      # Sends each build from main to the team's phones (Firebase App Distribution, group
-      # "team"). Needs the FIREBASE_DISTRIBUTION_KEY secret (a service account key); without
-      # it this step is skipped and the APK is only attached to the run as before.
-      - name: Send to team phones (Firebase App Distribution)
+      # Publishes each build from main as a GitHub release ("build-<run number>") with the
+      # APK attached. The app checks the latest release and offers a one-tap update.
+      # Uses the workflow's own token: no secrets to set up.
+      - name: Publish update for the app
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
-          DIST_KEY: ${{ secrets.FIREBASE_DISTRIBUTION_KEY }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if [ -z "$DIST_KEY" ]; then
-            echo "::warning::FIREBASE_DISTRIBUTION_KEY secret not set: build not sent to phones"
-            exit 0
-          fi
-          echo "$DIST_KEY" > "$RUNNER_TEMP/dist-key.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/dist-key.json"
-          npm install -g firebase-tools@13 --silent
-          NOTES="$(git log -1 --pretty=%s) (build ${GITHUB_RUN_NUMBER})"
-          firebase appdistribution:distribute app/build/outputs/apk/debug/*.apk \
-            --app 1:757629365751:android:44624fbc26d54db113d2f2 \
-            --groups team \
-            --release-notes "$NOTES"
-          rm -f "$RUNNER_TEMP/dist-key.json"
-          echo "::notice::Build ${GITHUB_RUN_NUMBER} sent to the team group"
+          cp app/build/outputs/apk/debug/*.apk "$RUNNER_TEMP/AarushCPM.apk"
+          gh release create "build-${GITHUB_RUN_NUMBER}" "$RUNNER_TEMP/AarushCPM.apk" \
+            --title "Aarush CPM 1.2.${GITHUB_RUN_NUMBER}" \
+            --notes "$(git log -1 --pretty=%s)" \
+            --target "$GITHUB_SHA" --latest
+          echo "::notice::Published update 1.2.${GITHUB_RUN_NUMBER}"
 
       - name: Upload unit test results
         if: always()

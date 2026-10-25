@@ -307,12 +307,17 @@ fun SettingsScreen(viewModel: SettingsViewModel, onSignOut: () -> Unit = {}, onO
             }
 
             Spacer(Modifier.height(20.dp))
+            SectionLabel("App updates")
+            Spacer(Modifier.height(6.dp))
+            com.aarush.cpm.ui.common.AppVersionCard()
+
+            Spacer(Modifier.height(20.dp))
             SectionLabel("About")
             Spacer(Modifier.height(10.dp))
             com.aarush.cpm.ui.common.AarushLogo(Modifier.width(180.dp))
             Spacer(Modifier.height(8.dp))
             Text("Aarush Construction & Consultant Works", style = MaterialTheme.typography.titleSmall)
-            Text("Aarush Construction Project Management System, v1.1.0", style = MaterialTheme.typography.bodySmall)
+            Text("Aarush Construction Project Management System", style = MaterialTheme.typography.bodySmall)
             Text("Works offline. With cloud sync on, projects are shared between the team's phones.", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             Spacer(Modifier.height(32.dp))
         }

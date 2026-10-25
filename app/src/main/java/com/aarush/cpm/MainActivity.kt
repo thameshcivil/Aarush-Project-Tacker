@@ -38,6 +38,7 @@ class MainActivity : FragmentActivity() {
                 runCatching { appContainer.accessRepository.registerThisDevice() }
                 appContainer.cloudSync.start()
             }
+            lifecycleScope.launch { appContainer.appUpdater.check(quiet = true) }
         }
 
         setContent {

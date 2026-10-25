@@ -4,6 +4,8 @@
     <!-- Needed only for Google Sign-In (Credential Manager talks to Play Services over the network).
          The app remains fully offline-first for every other feature. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app updates: lets the app hand a downloaded new version to Android's installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -23,6 +25,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Shares the downloaded update file with the system installer. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 
 </manifest>

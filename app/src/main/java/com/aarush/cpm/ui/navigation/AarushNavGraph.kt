@@ -64,7 +64,7 @@ fun AarushNavGraph(appContainer: AppContainer) {
     val access = team?.access ?: com.aarush.cpm.domain.access.Access.LOADING
     val preview = team?.preview
 
-    CompositionLocalProvider(LocalTeam provides team, LocalAccess provides access) {
+    CompositionLocalProvider(LocalTeam provides team, LocalAccess provides access, com.aarush.cpm.ui.common.LocalAppUpdater provides appContainer.appUpdater) {
     Column(Modifier.fillMaxSize()) {
     if (preview != null) {
         PreviewBanner(preview.name, preview.role.label, onStop = { appContainer.accessRepository.stopPreview() })

@@ -143,6 +143,7 @@ fun DashboardScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp)) {
+            UpdateBanner(Modifier.padding(bottom = 12.dp))
             OutlinedTextField(
                 value = searchText,
                 onValueChange = { searchText = it; viewModel.onQueryChange(it) },

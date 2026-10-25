@@ -38,6 +38,7 @@ class AppContainer(context: Context) {
 
     /** Lives as long as the app process (not the screen), so sync keeps one listener. */
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    val appUpdater by lazy { com.aarush.cpm.data.update.AppUpdater(context.applicationContext, appScope) }
     val cloudSync by lazy { com.aarush.cpm.data.sync.CloudSync(context.applicationContext, db, deviceIdentity.id, appScope) }
 
     companion object {
