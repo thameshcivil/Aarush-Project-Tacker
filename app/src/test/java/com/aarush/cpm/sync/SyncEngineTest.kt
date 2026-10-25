@@ -174,7 +174,10 @@ class SyncEngineTest {
         p.engine.markSent(p.engine.collectOutgoing().map { it.first })
         assertThat(p.engine.pendingCount()).isEqualTo(0)
         // A row applied from the cloud is not queued again.
-        p.engine.applyIncoming(listOf(CloudRow("projects", "u-1", mapOf("name" to "From cloud"), false)))
+        val other = Phone("X")
+        other.insert("projects", mapOf("name" to "From cloud"))
+        p.engine.applyIncoming(other.engine.collectOutgoing().mapNotNull { it.second })
+        assertThat(p.rows("projects").map { it["name"] }).contains("From cloud")
         assertThat(p.engine.pendingCount()).isEqualTo(0)
         // Changed again after it was collected: stays queued.
         val batch = p.engine.collectOutgoing()
@@ -237,14 +240,23 @@ class SyncEngineTest {
     }
 
     @Test fun childBeforeParentIsParkedThenApplied() {
+        // Complete rows as phone A would upload them.
+        val a = Phone("A")
+        val proj = a.insert("projects", mapOf("name" to "P"))
+        a.insert("vendors", mapOf("projectId" to proj, "name" to "V"))
+        val out = a.engine.collectOutgoing().mapNotNull { it.second }
+        val projectRow = out.single { it.table == "projects" }
+        val vendorRow = out.single { it.table == "vendors" }
+
         val p = Phone("B")
-        p.engine.applyIncoming(listOf(CloudRow("vendors", "v-1", mapOf("projectId" to "p-1", "name" to "V"), false)))
+        p.engine.applyIncoming(listOf(vendorRow))
         assertThat(p.rows("vendors")).isEmpty()
         assertThat(p.engine.parkedCount()).isEqualTo(1)
-        p.engine.applyIncoming(listOf(CloudRow("projects", "p-1", mapOf("name" to "P"), false)))
+        p.engine.applyIncoming(listOf(projectRow))
         assertThat(p.engine.parkedCount()).isEqualTo(0)
         val pid = p.rows("projects").single()["id"]
         assertThat(p.rows("vendors").single()["projectId"]).isEqualTo(pid)
+        assertThat(p.rows("vendors").single()["name"]).isEqualTo("V")
     }
 
     @Test fun unsentLocalEditIsNotOverwrittenByTheCloud() {
