@@ -73,7 +73,15 @@ object DatabaseBackupHelper {
         }
     }
 
-    suspend fun backupTo(context: Context, destination: Uri, db: AppDatabase): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun backupTo(context: Context, destination: Uri, db: AppDatabase): Result<Unit> =
+        writeBackup(context, db) { context.contentResolver.openOutputStream(destination, "wt") }
+
+    /** Same verified backup, written to a file in the app's own folder (e.g. the safety copy
+     *  taken before a phone switches to the cloud copy). */
+    suspend fun backupToFile(context: Context, file: File, db: AppDatabase): Result<Unit> =
+        writeBackup(context, db) { file.parentFile?.mkdirs(); java.io.FileOutputStream(file) }
+
+    private suspend fun writeBackup(context: Context, db: AppDatabase, open: () -> java.io.OutputStream?): Result<Unit> = withContext(Dispatchers.IO) {
         val dbFile = liveDatabaseFile(context)
         val walFile = File(dbFile.path + "-wal")
         val snapDir = File(context.cacheDir, "backup_snapshot").apply { deleteRecursively(); mkdirs() }
@@ -111,7 +119,7 @@ object DatabaseBackupHelper {
                 return@withContext Result.failure(IllegalStateException("Backup incomplete (${mismatched.joinToString()}). Nothing was saved; please try again."))
             }
 
-            val output = context.contentResolver.openOutputStream(destination, "wt")
+            val output = open()
                 ?: return@withContext Result.failure(IllegalStateException("Could not open the chosen location for writing."))
             output.use { out -> FileInputStream(snapshot).use { input -> input.copyTo(out) } }
             Result.success(Unit)

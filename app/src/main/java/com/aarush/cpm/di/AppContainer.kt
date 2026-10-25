@@ -35,4 +35,16 @@ class AppContainer(context: Context) {
         SampleDataSeeder(db, projectRepository, builtInDefaultsSeeder, vendorRepository, expenseRepository, scheduleRepository)
     }
     val builtInDefaultsSeeder by lazy { BuiltInDefaultsSeeder(db) }
+
+    /** Lives as long as the app process (not the screen), so sync keeps one listener. */
+    private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    val cloudSync by lazy { com.aarush.cpm.data.sync.CloudSync(context.applicationContext, db, deviceIdentity.id, appScope) }
+
+    companion object {
+        @Volatile private var instance: AppContainer? = null
+
+        /** One container per process: rotating the screen must not start a second sync. */
+        fun get(context: Context): AppContainer =
+            instance ?: synchronized(this) { instance ?: AppContainer(context.applicationContext).also { instance = it } }
+    }
 }
