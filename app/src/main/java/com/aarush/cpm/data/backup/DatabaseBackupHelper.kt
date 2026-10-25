@@ -31,23 +31,94 @@ object DatabaseBackupHelper {
 
     private fun liveDatabaseFile(context: Context): File = context.getDatabasePath(AppDatabase.DB_NAME)
 
-    /** Flushes Room's write-ahead log into the main .db file so the copy is complete. */
-    private fun checkpointWal(db: AppDatabase) {
-        db.query("PRAGMA wal_checkpoint(FULL)", null).close()
+    /**
+     * Flushes Room's write-ahead log into the main .db file.
+     *
+     * The old version called `db.query(...).close()`. Android cursors are lazy, so a PRAGMA
+     * only runs when the cursor is read. Closing it unread meant the checkpoint NEVER ran,
+     * and every recent change still sitting in `-wal` was left out of the backup.
+     * Returns true when the whole log was checkpointed (busy column = 0).
+     */
+    private fun checkpointWal(db: AppDatabase): Boolean =
+        db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { c ->
+            c.moveToFirst() && c.getInt(0) == 0
+        }
+
+    /** Runs a PRAGMA on a plain SQLiteDatabase and reads it, so it actually executes. */
+    private fun SQLiteDatabase.pragma(sql: String) {
+        rawQuery(sql, null).use { it.moveToFirst() }
+    }
+
+    /** User tables and their row counts (Room / Android bookkeeping tables excluded). */
+    internal fun rowCounts(sql: SQLiteDatabase): Map<String, Long> {
+        val tables = sql.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' " +
+                "AND name NOT IN ('android_metadata','room_master_table')", null
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+        return tables.associateWith { t ->
+            sql.rawQuery("SELECT COUNT(*) FROM `$t`", null).use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+        }
+    }
+
+    /**
+     * Turns a snapshot (`.db` + its `-wal`) into ONE self-contained file: opening it lets
+     * SQLite replay the log, the checkpoint merges it in, and switching to DELETE journal
+     * mode leaves no side files. Returns the integrity check result ("ok" when healthy).
+     */
+    internal fun foldSnapshot(snapshot: File): String {
+        SQLiteDatabase.openDatabase(snapshot.path, null, SQLiteDatabase.OPEN_READWRITE).use { sql ->
+            sql.pragma("PRAGMA wal_checkpoint(TRUNCATE)")
+            sql.pragma("PRAGMA journal_mode=DELETE")
+            return sql.rawQuery("PRAGMA integrity_check", null).use { c -> if (c.moveToFirst()) c.getString(0) else "unknown" }
+        }
     }
 
     suspend fun backupTo(context: Context, destination: Uri, db: AppDatabase): Result<Unit> = withContext(Dispatchers.IO) {
+        val dbFile = liveDatabaseFile(context)
+        val walFile = File(dbFile.path + "-wal")
+        val snapDir = File(context.cacheDir, "backup_snapshot").apply { deleteRecursively(); mkdirs() }
+        val snapshot = File(snapDir, AppDatabase.DB_NAME)
         try {
-            checkpointWal(db)
-            val dbFile = liveDatabaseFile(context)
-            val output = context.contentResolver.openOutputStream(destination)
-                ?: return@withContext Result.failure(IllegalStateException("Could not open the chosen location for writing."))
-            output.use { out ->
-                FileInputStream(dbFile).use { input -> input.copyTo(out) }
+            // Tidy first (best effort). The snapshot below is what guarantees completeness.
+            runCatching { checkpointWal(db) }
+
+            // Copy .db and -wal together while holding the write lock. No other writer can
+            // commit or auto-checkpoint meanwhile, so the pair is one consistent moment.
+            // The live row counts come from inside the same transaction.
+            val live = db.openHelper.writableDatabase
+            var liveCounts: Map<String, Long> = emptyMap()
+            live.beginTransaction()
+            try {
+                dbFile.copyTo(snapshot, overwrite = true)
+                if (walFile.exists() && walFile.length() > 0) walFile.copyTo(File(snapshot.path + "-wal"), overwrite = true)
+                liveCounts = live.query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' " +
+                        "AND name NOT IN ('android_metadata','room_master_table')"
+                ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+                    .associateWith { t -> live.query("SELECT COUNT(*) FROM `$t`").use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } }
+                live.setTransactionSuccessful()
+            } finally {
+                live.endTransaction()
             }
+
+            val integrity = foldSnapshot(snapshot)
+            if (integrity != "ok") return@withContext Result.failure(IllegalStateException("Backup check failed ($integrity). Nothing was saved."))
+
+            // Verify the backup holds exactly what the app holds, table by table.
+            val backupCounts = SQLiteDatabase.openDatabase(snapshot.path, null, SQLiteDatabase.OPEN_READONLY).use { rowCounts(it) }
+            val mismatched = liveCounts.filter { (t, n) -> backupCounts[t] != n }.keys
+            if (mismatched.isNotEmpty()) {
+                return@withContext Result.failure(IllegalStateException("Backup incomplete (${mismatched.joinToString()}). Nothing was saved; please try again."))
+            }
+
+            val output = context.contentResolver.openOutputStream(destination, "wt")
+                ?: return@withContext Result.failure(IllegalStateException("Could not open the chosen location for writing."))
+            output.use { out -> FileInputStream(snapshot).use { input -> input.copyTo(out) } }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            snapDir.deleteRecursively()
         }
     }
 
