@@ -81,9 +81,20 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         )
     }
 
-    private val columnCache = mutableMapOf<String, List<String>>()
-    private fun columns(table: String): List<String> =
-        columnCache.getOrPut(table) { sql.query("PRAGMA table_info(`$table`)").map { it["name"] as String } }
+    private val infoCache = mutableMapOf<String, List<Map<String, Any?>>>()
+    private fun tableInfo(table: String) = infoCache.getOrPut(table) { sql.query("PRAGMA table_info(`$table`)") }
+    private fun columns(table: String): List<String> = tableInfo(table).map { it["name"] as String }
+
+    /** A row from a phone on an older app version may lack a column added since (e.g.
+     *  projects.profitPercent). Required columns it doesn't send get 0 / 0.0 / "". */
+    private fun fillMissingRequired(table: String, values: LinkedHashMap<String, Any?>) {
+        tableInfo(table).forEach { c ->
+            val name = c["name"] as String
+            if (name in values || (c["pk"] as Long) != 0L || (c["notnull"] as Long) == 0L || c["dflt_value"] != null) return@forEach
+            val type = (c["type"] as String).uppercase()
+            values[name] = when { type.contains("INT") -> 0L; type.contains("REAL") || type.contains("FLOA") || type.contains("DOUB") -> 0.0; else -> "" }
+        }
+    }
 
     // ------------------------------------------------------------------ ids
 
@@ -258,6 +269,7 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
             // phone that deleted it.
             val data = r.data ?: return Outcome.SKIPPED
             val values = localValues(t, data, lenient = true)
+            fillMissingRequired(t.name, values)
             val id = sql.insert(insertSql(t.name, values.keys), values.values.toList())
             sql.exec("DELETE FROM `${t.name}` WHERE id = ?", listOf(id))
             map(t.name, id, r.uid)
@@ -266,6 +278,7 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         val data = r.data ?: return Outcome.SKIPPED
         if (local != null && isPending(t.name, local.toString())) return Outcome.SKIPPED
         val values = localValues(t, data, lenient = false)
+        fillMissingRequired(t.name, values)
         if (local == null) {
             val id = sql.insert(insertSql(t.name, values.keys), values.values.toList())
             map(t.name, id, r.uid)
@@ -289,6 +302,7 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         }
         val values = localValues(t, r.data ?: return Outcome.SKIPPED, lenient = false)
         values[column] = localKey
+        fillMissingRequired(t.name, values)
         sql.exec(insertSql(t.name, values.keys, orReplace = true), values.values.toList())
         return Outcome.APPLIED
     }
@@ -303,6 +317,7 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         }
         val values = localValues(t, r.data ?: return Outcome.SKIPPED, lenient = false)
         values["projectId"] = pid; values["deviceId"] = dev
+        fillMissingRequired(t.name, values)
         sql.exec(insertSql(t.name, values.keys, orReplace = true), values.values.toList())
         return Outcome.APPLIED
     }

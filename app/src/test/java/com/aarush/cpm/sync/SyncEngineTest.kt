@@ -321,4 +321,16 @@ class SyncEngineTest {
         b.sync(cloud)
         assertThat(b.rows("projects").single()["name"]).isEqualTo("Kumar")
     }
+
+    @Test fun rowFromAnOlderAppVersionStillApplies() {
+        // Phone A on the old version sends a project without a column added since.
+        val a = Phone("A")
+        a.insert("projects", mapOf("name" to "Old phone project"))
+        val row = a.engine.collectOutgoing().mapNotNull { it.second }.single { it.table == "projects" }
+        val trimmed = row.copy(data = row.data!!.filterKeys { it != "profitPercent" && it != "amount" })
+        val b = Phone("B")
+        b.engine.applyIncoming(listOf(trimmed))
+        assertThat(b.engine.parkedCount()).isEqualTo(0)
+        assertThat(b.rows("projects").single()["name"]).isEqualTo("Old phone project")
+    }
 }
