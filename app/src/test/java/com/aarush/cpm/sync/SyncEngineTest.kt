@@ -333,4 +333,38 @@ class SyncEngineTest {
         assertThat(b.engine.parkedCount()).isEqualTo(0)
         assertThat(b.rows("projects").single()["name"]).isEqualTo("Old phone project")
     }
+
+    /** Room writes with explicit conflict clauses (UPDATE OR ABORT, INSERT OR ABORT/REPLACE),
+     *  which override a trigger's own. Saving the same row repeatedly must never fail. */
+    @Test fun roomStyleWritesNeverConflictWithTheChangeQueue() {
+        val p = Phone("A")
+        val id = p.insert("projects", mapOf("name" to "One"))
+        // Room's @Update: UPDATE OR ABORT, again and again on a row already queued.
+        repeat(3) { n -> p.sql.exec("UPDATE OR ABORT projects SET name = ? WHERE id = ?", listOf("Edit $n", id)) }
+        p.sql.exec("UPDATE OR ROLLBACK projects SET name = 'again' WHERE id = ?", listOf(id))
+        assertThat(p.rows("projects").single()["name"]).isEqualTo("again")
+        // Room's @Insert (OR ABORT) of a key whose delete is still queued (settings key re-added).
+        p.sql.exec("INSERT OR ABORT INTO app_settings (`key`, value) VALUES ('k', '1')")
+        p.sql.exec("DELETE FROM app_settings WHERE `key` = 'k'")
+        p.sql.exec("INSERT OR ABORT INTO app_settings (`key`, value) VALUES ('k', '2')")
+        // Room's REPLACE strategy on an existing row.
+        p.sql.exec("INSERT OR REPLACE INTO app_settings (`key`, value) VALUES ('k', '3')")
+        assertThat(p.engine.pendingCount()).isEqualTo(2)   // the project and the setting
+    }
+
+    @Test fun oldVersionOneTriggersAreReplaced() {
+        val p = Phone("A")
+        // Simulate a phone that still has the version 1 trigger on projects.
+        p.sql.exec("DROP TRIGGER IF EXISTS sync2_u_projects")
+        p.sql.exec("CREATE TRIGGER sync_u_projects AFTER UPDATE ON projects BEGIN " +
+            "INSERT OR REPLACE INTO sync_outbox (tbl, rk, seq) VALUES ('projects', CAST(OLD.id AS TEXT), 1); " +
+            "INSERT OR REPLACE INTO sync_outbox (tbl, rk, seq) VALUES ('projects', CAST(NEW.id AS TEXT), 2); END")
+        p.engine.ensureSchema()
+        val names = p.sql.query("SELECT name FROM sqlite_master WHERE type = 'trigger'").map { it["name"] as String }
+        assertThat(names).doesNotContain("sync_u_projects")
+        assertThat(names).contains("sync2_u_projects")
+        val id = p.insert("projects", mapOf("name" to "x"))
+        p.sql.exec("UPDATE OR ABORT projects SET name = 'y' WHERE id = ?", listOf(id))
+        p.sql.exec("UPDATE OR ABORT projects SET name = 'z' WHERE id = ?", listOf(id))
+    }
 }

@@ -59,7 +59,10 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         sql.exec("CREATE UNIQUE INDEX IF NOT EXISTS sync_ids_uid ON sync_ids (tbl, uid)")
         sql.exec("CREATE TABLE IF NOT EXISTS sync_cursor (tbl TEXT PRIMARY KEY NOT NULL, u INTEGER NOT NULL)")
         sql.exec("CREATE TABLE IF NOT EXISTS sync_parked (tbl TEXT NOT NULL, uid TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (tbl, uid))")
-        SyncSchema.tables.forEach { t -> triggerSql(t).forEach(sql::exec) }
+        SyncSchema.tables.forEach { t ->
+            oldTriggerDrops(t).forEach(sql::exec)
+            triggerSql(t).forEach(sql::exec)
+        }
     }
 
     /** Row-key expression for a trigger, using NEW or OLD. */
@@ -69,17 +72,31 @@ class SyncEngine(private val sql: SyncSql, private val newUid: () -> String = { 
         RowKey.ProjectMember -> "CAST($row.projectId AS TEXT) || '|' || $row.deviceId"
     }
 
+    /**
+     * Change-tracking triggers (version 2).
+     *
+     * Each records "this row changed" by deleting any older note for the row and inserting a
+     * new one. Version 1 used INSERT OR REPLACE, but SQLite lets the statement that fired a
+     * trigger override the trigger's conflict handling, and Room writes with UPDATE OR ABORT /
+     * INSERT OR ABORT, so a second note for the same row aborted the save and crashed the app
+     * (e.g. editing an expense). DELETE + INSERT never conflicts, whatever the outer statement.
+     */
     internal fun triggerSql(t: SyncTable): List<String> {
-        fun body(row: String) = "INSERT OR REPLACE INTO sync_outbox (tbl, rk, seq) VALUES ('${t.name}', ${rkExpr(t, row)}, " +
+        fun note(row: String) = "DELETE FROM sync_outbox WHERE tbl = '${t.name}' AND rk = ${rkExpr(t, row)}; " +
+            "INSERT INTO sync_outbox (tbl, rk, seq) VALUES ('${t.name}', ${rkExpr(t, row)}, " +
             "(SELECT COALESCE(MAX(seq), 0) + 1 FROM sync_outbox));"
         val gate = "WHEN (SELECT applying FROM sync_flag WHERE id = 1) = 0"
         return listOf(
-            "CREATE TRIGGER IF NOT EXISTS sync_i_${t.name} AFTER INSERT ON `${t.name}` $gate BEGIN ${body("NEW")} END",
+            "CREATE TRIGGER IF NOT EXISTS sync2_i_${t.name} AFTER INSERT ON `${t.name}` $gate BEGIN ${note("NEW")} END",
             // An update can change a natural key, so both the old and the new key are recorded.
-            "CREATE TRIGGER IF NOT EXISTS sync_u_${t.name} AFTER UPDATE ON `${t.name}` $gate BEGIN ${body("OLD")} ${body("NEW")} END",
-            "CREATE TRIGGER IF NOT EXISTS sync_d_${t.name} AFTER DELETE ON `${t.name}` $gate BEGIN ${body("OLD")} END"
+            "CREATE TRIGGER IF NOT EXISTS sync2_u_${t.name} AFTER UPDATE ON `${t.name}` $gate BEGIN ${note("OLD")} ${note("NEW")} END",
+            "CREATE TRIGGER IF NOT EXISTS sync2_d_${t.name} AFTER DELETE ON `${t.name}` $gate BEGIN ${note("OLD")} END"
         )
     }
+
+    /** Version 1 triggers (see [triggerSql]), removed from databases that still have them. */
+    internal fun oldTriggerDrops(t: SyncTable): List<String> =
+        listOf("i", "u", "d").map { "DROP TRIGGER IF EXISTS sync_${it}_${t.name}" }
 
     private val infoCache = mutableMapOf<String, List<Map<String, Any?>>>()
     private fun tableInfo(table: String) = infoCache.getOrPut(table) { sql.query("PRAGMA table_info(`$table`)") }
