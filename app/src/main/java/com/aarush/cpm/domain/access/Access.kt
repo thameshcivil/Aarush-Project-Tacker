@@ -22,6 +22,9 @@ data class ProjectAccess(
     companion object {
         val FULL = ProjectAccess(true, true, true, true, true, true)
         val NONE = ProjectAccess(false, false, false, false, false, false)
+        /** Partner on an assigned project: everything except the BOQ and the project setup
+         *  (value, area & rate, cost distribution, profit %, details). */
+        val PARTNER = FULL.copy(editSetup = false, editMeasurements = false)
         /** Coordinator on an assigned project: day-to-day site entries only. */
         val SITE = NONE.copy(editMeasurements = true, logProgress = true, editExpenses = true)
     }
@@ -48,6 +51,7 @@ data class Access(
 
     fun forProject(projectId: Long): ProjectAccess = when {
         role == TeamRole.OWNER || role == TeamRole.MANAGER -> ProjectAccess.FULL
+        role == TeamRole.PARTNER && projectId in assignedProjectIds -> ProjectAccess.PARTNER
         role == TeamRole.COORDINATOR && projectId in assignedProjectIds -> ProjectAccess.SITE
         else -> ProjectAccess.NONE
     }

@@ -502,7 +502,7 @@ class ScheduleRepository(private val db: AppDatabase) {
         }
         val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val pools = allocations.filter { it.category != CostCategory.CIVIL_STRUCTURAL }
-            .associate { it.category to CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations) }
+            .associate { it.category to CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations, project.profitPercent) }
         val civilLabourPool = BudgetMath.civilLabourPool(vendors)
         val budgets = ScheduleEngine.allocateBudgets(
             activities.map { BudgetInput(it.id, it.category, it.budgetWeight, it.budgetOverride, materialCost[it.id] ?: 0.0,
@@ -624,7 +624,7 @@ class ScheduleRepository(private val db: AppDatabase) {
         ev.cpi?.let { if (it < 0.95) alerts += ScheduleAlert(NotificationType.BUDGET_EXCEEDED,
             "Cost performance ${"%.2f".format(it)} — work done is costing more than budgeted. Forecast cost at completion ₹${"%,.0f".format(ev.estimateAtCompletion)}.", it < 0.85) }
         allocations.forEach { alloc ->
-            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations)
+            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations, project.profitPercent)
             val actual = expenses.filter { it.direction == TransactionDirection.EXPENSE && it.category == alloc.category }.sumOf { it.totalAmount }
             if (budget > 0 && actual > budget) alerts += ScheduleAlert(NotificationType.BUDGET_EXCEEDED,
                 "${alloc.category.name.replace('_', ' ')} spend ₹${"%,.0f".format(actual)} exceeds its budget ₹${"%,.0f".format(budget)}.", true)

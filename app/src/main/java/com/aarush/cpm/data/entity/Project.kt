@@ -23,6 +23,9 @@ data class Project(
     val notes: String = "",
     val status: ProjectStatus = ProjectStatus.PLANNING,
     val isDemoData: Boolean = false,
+    /** Profit kept aside from the project value (v11), e.g. 15.0. Category budgets share the
+     *  rest: budget = value × (100 − profit%) / 100 × category %. 0 = nothing set aside. */
+    val profitPercent: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

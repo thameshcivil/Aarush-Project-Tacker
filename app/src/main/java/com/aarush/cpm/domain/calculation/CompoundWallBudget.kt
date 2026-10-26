@@ -14,6 +14,9 @@ import com.aarush.cpm.data.entity.ProjectAreaComponent
  *    Civil : Painting % ratio (e.g. 45 : 8). If Painting has no share, it all goes to Civil.
  * Totals still add up to the project value. With no compound wall the result is exactly
  * CalculationEngine.categoryBudget(projectValue, percent), as before.
+ *
+ * Profit % (v11): that share of the value is kept aside first, so every category budget is
+ * scaled by (100 − profit%) / 100 and the budgets add up to value − profit. 0% = as before.
  */
 object CompoundWallBudget {
 
@@ -30,14 +33,22 @@ object CompoundWallBudget {
         percentOfValue: Double,
         projectValue: Double,
         wallValue: Double,
-        allocations: List<CostAllocation>
+        allocations: List<CostAllocation>,
+        profitPercent: Double = 0.0
     ): Double {
-        if (wallValue <= 0.0) return CalculationEngine.categoryBudget(projectValue, percentOfValue)
+        val costShare = costShare(profitPercent)
+        if (wallValue <= 0.0) return CalculationEngine.categoryBudget(projectValue, percentOfValue) * costShare
         val wall = wallValue.coerceAtMost(projectValue).coerceAtLeast(0.0)
         val building = projectValue - wall
         val base = CalculationEngine.categoryBudget(building, percentOfValue)
-        return base + wall * wallShare(category, allocations)
+        return (base + wall * wallShare(category, allocations)) * costShare
     }
+
+    /** Fraction of the value left for costs after profit is kept aside (profit 0–100%). */
+    fun costShare(profitPercent: Double): Double = (100.0 - profitPercent.coerceIn(0.0, 100.0)) / 100.0
+
+    /** Profit kept aside, in rupees. */
+    fun profitAmount(projectValue: Double, profitPercent: Double): Double = projectValue * (1.0 - costShare(profitPercent))
 
     /** Share of the wall value that goes to [category]: Civil and Painting only. */
     fun wallShare(category: CostCategory, allocations: List<CostAllocation>): Double {

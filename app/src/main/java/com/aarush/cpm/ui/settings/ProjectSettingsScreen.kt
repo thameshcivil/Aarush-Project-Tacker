@@ -78,7 +78,9 @@ data class ProjectEdit(
     val expectedCompletionDate: Long = System.currentTimeMillis(),
     val useManualValue: Boolean = false,
     val manualValue: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    /** Profit % kept aside from the value (budgets share the rest). */
+    val profitPercent: String = "0"
 )
 
 data class ProjectSettingsUiState(
@@ -155,7 +157,8 @@ class ProjectSettingsViewModel(
                         startDate = it.startDate, expectedCompletionDate = it.expectedCompletionDate,
                         useManualValue = it.isProjectValueManuallyOverridden,
                         manualValue = if (it.isProjectValueManuallyOverridden) "%.0f".format(it.projectValue) else "",
-                        notes = it.notes
+                        notes = it.notes,
+                        profitPercent = fmt(it.profitPercent)
                     )
                 } ?: ProjectEdit(),
                 allocations = allocationRows,
@@ -229,6 +232,7 @@ class ProjectSettingsViewModel(
             s.allocations.any { (it.materialPercent.toDoubleOrNull() ?: -1.0) !in 0.0..100.0 } -> "Material share must be between 0 and 100%."
             e.useManualValue && (e.manualValue.toDoubleOrNull() ?: 0.0) <= 0 -> "Enter the manual project value or untick the override."
             e.expectedCompletionDate < e.startDate -> "Expected completion can't be before the start date."
+            (e.profitPercent.toDoubleOrNull() ?: -1.0) !in 0.0..99.0 -> "Profit % must be between 0 and 99."
             else -> null
         }
         if (error != null) { _uiState.value = s.copy(error = error); return }
@@ -239,7 +243,8 @@ class ProjectSettingsViewModel(
                     name = e.name.trim(), clientName = e.clientName.trim(), clientContact = e.clientContact.trim(),
                     location = e.location.trim(), projectType = e.projectType.trim(),
                     numberOfFloors = (e.numberOfFloors.toIntOrNull() ?: project.numberOfFloors).coerceIn(1, 10),
-                    status = e.status, startDate = e.startDate, expectedCompletionDate = e.expectedCompletionDate, notes = e.notes
+                    status = e.status, startDate = e.startDate, expectedCompletionDate = e.expectedCompletionDate, notes = e.notes,
+                    profitPercent = e.profitPercent.toDoubleOrNull() ?: 0.0
                 ),
                 manualValue = if (e.useManualValue) e.manualValue.toDoubleOrNull() else null
             )
@@ -413,6 +418,22 @@ private fun ProjectTab(state: ProjectSettingsUiState, viewModel: ProjectSettings
         }
         Spacer(Modifier.height(6.dp))
         val value = state.project?.projectValue ?: 0.0
+        val profitPct = e.profitPercent.toDoubleOrNull() ?: 0.0
+        // Profit is kept aside first; the category % below share what is left.
+        AppCard(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+            Column(Modifier.padding(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("PROFIT (kept aside)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text(formatCurrencyShort(com.aarush.cpm.domain.calculation.CompoundWallBudget.profitAmount(value, profitPct)),
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedTextField(e.profitPercent, { v -> viewModel.editProject { it.copy(profitPercent = v) } },
+                    label = { Text("Profit % of project value") }, singleLine = true,
+                    supportingText = { Text("Categories below share the remaining ${"%.1f".format(100 - profitPct.coerceIn(0.0, 100.0))}% " +
+                        "(${formatCurrencyShort(value - com.aarush.cpm.domain.calculation.CompoundWallBudget.profitAmount(value, profitPct))})") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            }
+        }
         // Preview with the percentages as currently typed; the compound wall (if any) goes to
         // Civil and Painting only, exactly as the saved budgets will.
         val previewAllocations = state.allocations.map {
@@ -429,12 +450,12 @@ private fun ProjectTab(state: ProjectSettingsUiState, viewModel: ProjectSettings
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(a.category.name.replace('_', ' '), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                         Text(formatCurrencyShort(com.aarush.cpm.domain.calculation.CompoundWallBudget.categoryBudget(
-                            a.category, a.percent.toDoubleOrNull() ?: 0.0, value, state.compoundWallValue, previewAllocations)),
+                            a.category, a.percent.toDoubleOrNull() ?: 0.0, value, state.compoundWallValue, previewAllocations, profitPct)),
                             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Row {
                         OutlinedTextField(a.percent, { v -> viewModel.editAllocation(a.category) { it.copy(percent = v) } },
-                            label = { Text("% of value") }, singleLine = true,
+                            label = { Text(if (profitPct > 0) "% of the rest" else "% of value") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(6.dp))
                         OutlinedTextField(a.materialPercent, { v -> viewModel.editAllocation(a.category) { it.copy(materialPercent = v) } },

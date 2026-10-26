@@ -94,4 +94,21 @@ class AccessTest {
         val stranger = team.copy(thisDeviceId = "Z")
         assertThat(stranger.access.loaded).isFalse()
     }
+
+    @Test fun partnerEditsAssignedProjectsExceptBoqAndSetup() {
+        val a = Access(TeamRole.PARTNER, setOf(p1))
+        assertThat(a.canOpenProject(p1)).isTrue()
+        assertThat(a.canOpenProject(p2)).isFalse()
+        val pa = a.forProject(p1)
+        assertThat(pa.editExpenses).isTrue()
+        assertThat(pa.editVendors).isTrue()
+        assertThat(pa.editSchedulePlan).isTrue()
+        assertThat(pa.logProgress).isTrue()
+        assertThat(pa.editMeasurements).isFalse()   // BOQ
+        assertThat(pa.editSetup).isFalse()          // project value, area & rate, distribution, profit
+        assertThat(a.forProject(p2)).isEqualTo(ProjectAccess.NONE)
+        assertThat(a.canCreateProject).isFalse()
+        assertThat(a.canDeleteProject).isFalse()
+        assertThat(a.canManageTeam).isFalse()
+    }
 }

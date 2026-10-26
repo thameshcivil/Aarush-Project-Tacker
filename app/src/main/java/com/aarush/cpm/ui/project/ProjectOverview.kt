@@ -198,7 +198,9 @@ internal fun OverviewSchedule(report: ScheduleReport?, daysRemaining: Long?, onO
 internal fun OverviewBudgetLink(summary: ProjectSummary, onOpenBudget: () -> Unit) {
     val over = summary.categories.filter { it.variance < 0 }
     LedgerSection("Budget") {
-        LedgerRow("Value − spent", formatCurrency(summary.profit), caption = "${formatPercent(summary.profitPercent)} of value",
+        LedgerRow("Value − spent", formatCurrency(summary.profit),
+            caption = "${formatPercent(summary.profitPercent)} of value" +
+                if (summary.profitTargetPercent > 0) " · target ${formatPercent(summary.profitTargetPercent)}" else "",
             valueColor = if (summary.profit < 0) SiteTheme.colors.bad else Color.Unspecified)
         LedgerRow(
             "Categories over budget",

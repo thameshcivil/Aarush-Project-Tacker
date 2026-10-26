@@ -28,7 +28,12 @@ data class ProjectSummary(
     val categories: List<CategoryBudgetVsActual>,
     /** Compound wall part of the project value (budgeted to Civil and Painting only). */
     val compoundWallValue: Double = 0.0
-)
+) {
+    /** Profit % kept aside from the value (v11); 0 when none is set. */
+    val profitTargetPercent: Double get() = project.profitPercent
+    /** That profit in rupees: value × profit %. */
+    val profitTarget: Double get() = CompoundWallBudget.profitAmount(project.projectValue, project.profitPercent)
+}
 
 /**
  * Budget 1 vs Budget 2, per the project's actual working method:
@@ -80,7 +85,7 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
 
         val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val categories = allocations.map { alloc ->
-            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations)
+            val budget = CompoundWallBudget.categoryBudget(alloc.category, alloc.percentOfProjectValue, project.projectValue, wallValue, allocations, project.profitPercent)
             val actual = expenses.filter { it.category == alloc.category }.sumOf { it.totalAmount }
             CategoryBudgetVsActual(
                 allocation = alloc,
@@ -131,7 +136,7 @@ class ProjectSummaryRepository(private val db: AppDatabase) {
         val wallValue = CompoundWallBudget.wallValue(db.projectAreaComponentDao().getForProject(projectId))
         val otherCategoriesTotal = allocations
             .filter { it.category != CostCategory.CIVIL_STRUCTURAL }
-            .sumOf { CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations) }
+            .sumOf { CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, project.projectValue, wallValue, allocations, project.profitPercent) }
 
         val budget2 = civilTotal + otherCategoriesTotal
 

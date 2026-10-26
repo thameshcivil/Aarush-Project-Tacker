@@ -60,6 +60,11 @@ internal fun ProjectValueHeader(project: Project, onEditAreaRate: () -> Unit, mo
                 Text("+ compound wall ${formatCurrency(compoundWallValue)} (Civil and Painting only)",
                     style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
             }
+            if (project.profitPercent > 0) {
+                Text("Profit ${formatPercent(project.profitPercent)} kept aside: " +
+                    formatCurrency(com.aarush.cpm.domain.calculation.CompoundWallBudget.profitAmount(project.projectValue, project.profitPercent)),
+                    style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+            }
             val details = listOf(
                 project.projectType,
                 "${project.numberOfFloors} floor${if (project.numberOfFloors == 1) "" else "s"}"
@@ -143,7 +148,13 @@ internal fun MoneySummaryTable(summary: ProjectSummary, modifier: Modifier = Mod
             valueColor = negativeRed(summary.cashBalance))
         LedgerRow("Client due", formatCurrency(summary.clientBalance), caption = "Value − received")
         // Same figure as before (project value − total spent); neutral unless negative.
-        LedgerRow("Value − spent", formatCurrency(summary.profit), caption = "${formatPercent(summary.profitPercent)} of value",
+        if (summary.profitTargetPercent > 0) {
+            LedgerRow("Profit kept aside", formatCurrency(summary.profitTarget),
+                caption = "${formatPercent(summary.profitTargetPercent)} of value · budgets share the rest")
+        }
+        LedgerRow("Value − spent", formatCurrency(summary.profit),
+            caption = "${formatPercent(summary.profitPercent)} of value" +
+                if (summary.profitTargetPercent > 0) " · target ${formatPercent(summary.profitTargetPercent)}" else "",
             valueColor = negativeRed(summary.profit), emphasize = true, divider = false)
     }
 }

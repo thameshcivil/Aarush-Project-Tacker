@@ -76,7 +76,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** Current schema version. Also used by restore-from-backup to reject a backup made
          *  by a newer app version (Room cannot downgrade a schema). */
-        const val VERSION = 10
+        const val VERSION = 11
 
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -309,6 +309,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v10 → v11: profit % kept aside from the project value. Existing projects get 0, so
+         *  their budgets are unchanged until a profit % is set. */
+        internal const val SQL_10_11_ADD_PROFIT = "ALTER TABLE projects ADD COLUMN profitPercent REAL NOT NULL DEFAULT 0"
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) { db.execSQL(SQL_10_11_ADD_PROFIT) }
+        }
+
         /** Cloud sync bookkeeping (change-tracking triggers and the sync_* tables) is kept
          *  outside Room's entities and (re)created on every open, so it needs no schema
          *  version bump and a restored backup gets it too. See data/sync/SyncEngine. */
@@ -325,7 +333,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .addCallback(SyncSetupCallback)
                     .build().also { INSTANCE = it }
             }

@@ -43,6 +43,7 @@ fun AccessNotice(role: TeamRole, access: ProjectAccess, modifier: Modifier = Mod
     val text = when {
         access.readOnly -> "View only. Ask the Owner if you need to make changes."
         role == TeamRole.COORDINATOR -> "Coordinator: you can add expenses, log progress and enter BOQ measurements."
+        role == TeamRole.PARTNER -> "Partner: you can change everything here except the BOQ and the project setup."
         else -> "Some changes are limited for this phone."
     }
     Row(

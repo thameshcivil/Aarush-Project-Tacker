@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
  */
 enum class TeamRole(val label: String, val summary: String) {
     OWNER("Owner", "Everything, including team, delete and restore"),
+    PARTNER("Partner", "Assigned projects: edits and deletes everything except the BOQ and project setup"),
     MANAGER("Project manager", "Edits every project. Can't delete projects, manage the team or restore"),
     COORDINATOR("Coordinator", "Expenses, progress and BOQ measurements on assigned projects only"),
     VIEWER("Viewer", "Read only, assigned projects only")

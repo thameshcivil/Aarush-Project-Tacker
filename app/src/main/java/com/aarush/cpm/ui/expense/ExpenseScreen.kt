@@ -227,7 +227,18 @@ class ExpenseViewModel(
     }
 }
 
-private enum class GroupMode { MATERIAL, DATE }
+/** How the expense list is arranged. RECENT is a flat list in the order entries were added. */
+private enum class GroupMode(val label: String) { DATE("Date"), MATERIAL("Material"), PERSON("Added by"), RECENT("Recently added"), AMOUNT("Amount") }
+
+/** "Added by Ravi – Site · 26 Oct 2026, 9:14 AM" under every entry. */
+@Composable
+private fun AddedLine(e: Expense) {
+    val who = com.aarush.cpm.ui.common.LocalTeam.current?.nameOf(e.enteredBy)
+    Text(
+        (if (who != null) "Added by $who · " else "Added ") + com.aarush.cpm.ui.common.formatDateTime(e.createdAt),
+        style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted
+    )
+}
 
 @Composable
 private fun DateOrderToggle(ascending: Boolean, onToggle: (Boolean) -> Unit) {
@@ -266,11 +277,20 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                     Text("Sort by:", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.width(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = groupMode == GroupMode.MATERIAL, onClick = { groupMode = GroupMode.MATERIAL }, label = { Text("Material") })
-                        FilterChip(selected = groupMode == GroupMode.DATE, onClick = { groupMode = GroupMode.DATE }, label = { Text("Date") })
+                        GroupMode.values().forEach { m ->
+                            FilterChip(selected = groupMode == m, onClick = { groupMode = m }, label = { Text(m.label) })
+                        }
                     }
-                    if (groupMode == GroupMode.DATE) {
-                        Spacer(Modifier.width(8.dp))
+                }
+                Row(Modifier.padding(horizontal = 12.dp).padding(top = 4.dp).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Order:", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(8.dp))
+                    if (groupMode == GroupMode.AMOUNT) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FilterChip(selected = !dateAscending, onClick = { dateAscending = false }, label = { Text("Highest first") })
+                            FilterChip(selected = dateAscending, onClick = { dateAscending = true }, label = { Text("Lowest first") })
+                        }
+                    } else {
                         DateOrderToggle(ascending = dateAscending, onToggle = { dateAscending = it })
                     }
                 }
@@ -308,14 +328,29 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                     item { Spacer(Modifier.height(72.dp)) }
                 }
             } else {
+                val team = com.aarush.cpm.ui.common.LocalTeam.current
+                fun who(e: Expense) = team?.nameOf(e.enteredBy) ?: if (e.enteredBy == null) "Not recorded" else "Removed phone"
+                // RECENT and AMOUNT are flat lists; the others are collapsible groups.
+                val flat: List<Expense>? = when (groupMode) {
+                    GroupMode.RECENT -> if (dateAscending) filtered.sortedBy { it.createdAt } else filtered.sortedByDescending { it.createdAt }
+                    GroupMode.AMOUNT -> if (dateAscending) filtered.sortedBy { it.totalAmount } else filtered.sortedByDescending { it.totalAmount }
+                    else -> null
+                }
                 val grouped = when (groupMode) {
                     GroupMode.MATERIAL -> filtered.groupBy { it.itemOrMaterialName }.toSortedMap()
+                    GroupMode.PERSON -> filtered.groupBy { who(it) }.toSortedMap()
                     GroupMode.DATE -> filtered
                         .groupBy { localDayOf(it.date) } // the person's local calendar day (not UTC)
                         .toSortedMap(if (dateAscending) compareBy { it } else compareByDescending { it })
                         .mapKeys { (day, _) -> com.aarush.cpm.ui.common.formatDate(day) }
+                    else -> emptyMap()
                 }
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (flat != null) {
+                        items(flat, key = { it.id }) { e ->
+                            ExpenseItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { pendingDelete = e }, showName = true)
+                        }
+                    }
                     grouped.forEach { (key, groupItems) ->
                         val isExpanded = expandedGroups.contains(key)
                         val groupTotal = groupItems.sumOf { it.totalAmount }
@@ -336,7 +371,8 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                         if (isExpanded) {
                             val sortedGroupItems = if (dateAscending) groupItems.sortedBy { it.date } else groupItems.sortedByDescending { it.date }
                             items(sortedGroupItems, key = { it.id }) { e ->
-                                ExpenseItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { pendingDelete = e })
+                                ExpenseItemRow(expense = e, onEdit = { editingExpense = e }, onDelete = { pendingDelete = e },
+                                    showName = groupMode != GroupMode.MATERIAL)
                             }
                         }
                     }
@@ -396,7 +432,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -> Unit, showName: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
 
     AppCard(
@@ -406,11 +442,13 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Text(formatDate(expense.date) + if (showName) " · ${expense.itemOrMaterialName}" else "",
+                        fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                     Text(
                         "${expense.quantity} ${expense.unit} @ ${formatCurrency(expense.rate)}  =  ${formatCurrency(expense.totalAmount)}",
                         style = MaterialTheme.typography.bodySmall
                     )
+                    AddedLine(expense)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
@@ -433,9 +471,6 @@ private fun ExpenseItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () ->
                 }
                 Text("Mode of payment: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 if (expense.type == ExpenseType.VENDOR) Text("Vendor payment", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                com.aarush.cpm.ui.common.enteredByName(expense.enteredBy)?.let {
-                    Text("Entered by: $it", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
-                }
                 if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editExpenses) {
                 Spacer(Modifier.height(8.dp))
                 Row {
@@ -465,6 +500,7 @@ private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -
                     Text(formatDate(expense.date), fontWeight = FontWeight.SemiBold)
                     com.aarush.cpm.ui.common.FitText(formatCurrency(expense.totalAmount), style = com.aarush.cpm.ui.theme.FigureStyle, color = SiteTheme.colors.good)
                     if (expense.itemOrMaterialName.isNotBlank()) Text(expense.itemOrMaterialName, style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
+                    AddedLine(expense)
                 }
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = if (expanded) "Collapse" else "Expand")
             }
@@ -474,9 +510,6 @@ private fun ReceivedItemRow(expense: Expense, onEdit: () -> Unit, onDelete: () -
                 Spacer(Modifier.height(8.dp))
                 Text("Mode of payment: ${expense.paymentMode.name}", style = MaterialTheme.typography.bodySmall)
                 Text("Description: ${expense.notes.ifBlank { "-" }}", style = MaterialTheme.typography.bodySmall)
-                com.aarush.cpm.ui.common.enteredByName(expense.enteredBy)?.let {
-                    Text("Entered by: $it", style = MaterialTheme.typography.bodySmall, color = SiteTheme.colors.muted)
-                }
                 if (com.aarush.cpm.ui.common.LocalProjectAccess.current.editExpenses) {
                 Spacer(Modifier.height(8.dp))
                 Row {

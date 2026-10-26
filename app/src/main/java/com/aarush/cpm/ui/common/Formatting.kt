@@ -37,6 +37,10 @@ private val localDateFormat = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.
 private val shortDateFormat = DateTimeFormatter.ofPattern("dd MMM", Locale.getDefault())
 
 fun formatDate(epochMillis: Long): String = dateFormat.format(java.util.Date(epochMillis))
+
+private val dateTimeFormat = java.text.SimpleDateFormat("dd MMM yyyy, h:mm a", java.util.Locale.getDefault())
+/** "26 Oct 2026, 9:14 AM": when a record was entered. */
+fun formatDateTime(epochMillis: Long): String = dateTimeFormat.format(java.util.Date(epochMillis))
 fun formatDate(date: LocalDate): String = date.format(localDateFormat)
 fun formatShortDate(date: LocalDate): String = date.format(shortDateFormat)
 

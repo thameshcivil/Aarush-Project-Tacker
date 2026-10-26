@@ -78,4 +78,13 @@ class MigrationSchemaTest {
             assertTrue(table, !table.contains("${m[2]} NOT NULL"))
         }
     }
+
+    // ---------------------------------------------------------------- v10 → v11 (profit %)
+
+    @Test fun profitColumnMatchesRoom() {
+        requireSchema()
+        val table = norm(createSql(schemaFile!!.readText(), "projects"), "projects")
+        val col = Regex("ADD COLUMN (\\w+) (\\w+ NOT NULL)").find(AppDatabase.SQL_10_11_ADD_PROFIT)!!.groupValues
+        assertTrue(table, table.contains("${col[1]} ${col[2]}"))
+    }
 }

@@ -62,4 +62,26 @@ class CompoundWallBudgetTest {
         assertEquals(324_000.0 + 50_000.0, CompoundWallBudget.wallValue(rows), 1e-6)
         assertEquals(listOf("Residence"), CompoundWallBudget.buildingRows(rows).map { it.label })
     }
+
+    // ---------------------------------------------------------------- profit % (v11)
+
+    @Test fun zeroProfitChangesNothing() {
+        CostCategory.values().forEach { c ->
+            val pct = alloc.first { it.category == c }.percentOfProjectValue
+            assertEquals(budget(c, 5_000_000.0, 324_000.0),
+                CompoundWallBudget.categoryBudget(c, pct, 5_000_000.0, 324_000.0, alloc, profitPercent = 0.0), 0.001)
+        }
+    }
+
+    @Test fun profitIsKeptAsideAndBudgetsShareTheRest() {
+        val value = 5_000_000.0
+        // 15% profit: Civil 45% of the remaining 85% = 0.45 × 4,250,000.
+        val civil = CompoundWallBudget.categoryBudget(CostCategory.CIVIL_STRUCTURAL, 45.0, value, 0.0, alloc, profitPercent = 15.0)
+        assertEquals(1_912_500.0, civil, 0.001)
+        assertEquals(750_000.0, CompoundWallBudget.profitAmount(value, 15.0), 0.001)
+        // With a compound wall too, budgets + profit still add up to the project value.
+        val wall = 324_000.0
+        val total = alloc.sumOf { CompoundWallBudget.categoryBudget(it.category, it.percentOfProjectValue, value, wall, alloc, 15.0) }
+        assertEquals(value, total + CompoundWallBudget.profitAmount(value, 15.0), 0.01)
+    }
 }

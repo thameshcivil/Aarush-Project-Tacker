@@ -112,7 +112,7 @@ class TeamViewModel(
 
 @Composable
 internal fun rolePillColors(role: TeamRole) = when (role) {
-    TeamRole.OWNER, TeamRole.MANAGER -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.secondaryContainer
+    TeamRole.OWNER, TeamRole.PARTNER, TeamRole.MANAGER -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.secondaryContainer
     TeamRole.COORDINATOR, TeamRole.VIEWER -> SiteTheme.colors.planned to SiteTheme.colors.plannedTint
 }
 
@@ -315,7 +315,7 @@ internal fun RolePicker(selected: TeamRole, onSelect: (TeamRole) -> Unit) {
     }
 }
 
-/** Project checklist for Coordinator / Viewer (Owner and Manager see every project). */
+/** Project checklist for Partner / Coordinator / Viewer (Owner and Manager see every project). */
 @Composable
 internal fun ProjectChecklist(projects: List<Project>, selected: Set<Long>, onChange: (Set<Long>) -> Unit) {
     if (projects.isEmpty()) {
@@ -358,7 +358,7 @@ private fun DeviceEditorDialog(
                 Spacer(Modifier.height(12.dp))
                 SectionLabel("Role")
                 RolePicker(role) { role = it }
-                if (role == TeamRole.COORDINATOR || role == TeamRole.VIEWER) {
+                if (role == TeamRole.PARTNER || role == TeamRole.COORDINATOR || role == TeamRole.VIEWER) {
                     Spacer(Modifier.height(12.dp))
                     SectionLabel("Projects")
                     ProjectChecklist(projects, ids) { ids = it }
@@ -457,7 +457,7 @@ private fun PreviewDialog(projects: List<Project>, onDismiss: () -> Unit, onStar
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 RolePicker(role) { role = it }
-                if (role == TeamRole.COORDINATOR || role == TeamRole.VIEWER) {
+                if (role == TeamRole.PARTNER || role == TeamRole.COORDINATOR || role == TeamRole.VIEWER) {
                     Spacer(Modifier.height(12.dp))
                     SectionLabel("Projects")
                     ProjectChecklist(projects, ids) { ids = it }
