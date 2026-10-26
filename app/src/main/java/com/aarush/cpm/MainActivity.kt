@@ -27,6 +27,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.aarush.cpm.data.crash.CrashReporter.install(applicationContext)
         enableEdgeToEdge()
 
         val appContainer = AppContainer.get(applicationContext)
@@ -45,6 +46,7 @@ class MainActivity : FragmentActivity() {
             AarushCPMTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AarushNavGraph(appContainer = appContainer)
+                    com.aarush.cpm.ui.common.CrashReportDialog()
                 }
             }
         }
