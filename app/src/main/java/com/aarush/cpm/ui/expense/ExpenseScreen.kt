@@ -64,8 +64,13 @@ data class MaterialExpenseInput(
      *  Stored in the expense's notes so the detail view can show what made up the total. */
     val rodBreakdown: String = "",
     /** null = infer automatically (BOQ trace → name keywords → Other/Misc). */
-    val categoryOverride: CostCategory? = null
+    val categoryOverride: CostCategory? = null,
+    /** Who paid: a partner's id (own pocket, refilled later) or null for office cash. */
+    val paidByPartnerId: Long? = null
 )
+
+/** Partner names for "Paid by" in the list (empty when the project has no partners set up). */
+internal val LocalPartnerNames = androidx.compose.runtime.staticCompositionLocalOf<Map<Long, String>> { emptyMap() }
 
 private const val RODS_PREFIX = "Rods: "
 private val rodRegex = Regex("""(\d+mm):\s*([\d.]+)\s*@\s*([\d.]+)""")
@@ -102,9 +107,15 @@ data class ReceivedInput(
 class ExpenseViewModel(
     private val expenseRepository: ExpenseRepository,
     private val materialRepository: MaterialRepository,
-    private val vendorRepository: VendorRepository
+    private val vendorRepository: VendorRepository,
+    private val cashRepository: com.aarush.cpm.data.repository.CashRepository? = null
 ) : ViewModel() {
     private val projectIdFlow = MutableStateFlow<Long?>(null)
+
+    /** The project's partners, for "Paid by". */
+    val partners: StateFlow<List<com.aarush.cpm.data.entity.ProjectPartner>> = projectIdFlow
+        .flatMapLatest { id -> if (id == null || cashRepository == null) flowOf(emptyList()) else cashRepository.observePartners(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val expenses: StateFlow<List<Expense>> = projectIdFlow
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else expenseRepository.observeForProject(id) }
@@ -164,7 +175,7 @@ class ExpenseViewModel(
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = goodsTotal + freight, freightAmount = freight, paymentMode = input.paymentMode,
                     paymentStatus = PaymentStatus.PAID,
-                    notes = composeNotes(input)
+                    notes = composeNotes(input), paidByPartnerId = input.paidByPartnerId
                 )
             )
         }
@@ -184,7 +195,7 @@ class ExpenseViewModel(
                     quantity = input.quantity, unit = input.unit, rate = input.rate,
                     totalAmount = goodsTotal + freight, freightAmount = freight,
                     paymentMode = input.paymentMode,
-                    notes = composeNotes(input)
+                    notes = composeNotes(input), paidByPartnerId = input.paidByPartnerId
                 )
             )
         }
@@ -228,14 +239,18 @@ class ExpenseViewModel(
 }
 
 /** How the expense list is arranged. RECENT is a flat list in the order entries were added. */
-private enum class GroupMode(val label: String) { DATE("Date"), MATERIAL("Material"), PERSON("Added by"), RECENT("Recently added"), AMOUNT("Amount") }
+private enum class GroupMode(val label: String) { DATE("Date"), MATERIAL("Material"), PERSON("Added by"), PAID_BY("Paid by"), RECENT("Recently added"), AMOUNT("Amount") }
 
 /** "Added by Ravi – Site · 26 Oct 2026, 9:14 AM" under every entry. */
 @Composable
 private fun AddedLine(e: Expense) {
     val who = com.aarush.cpm.ui.common.LocalTeam.current?.nameOf(e.enteredBy)
+    val partnerNames = LocalPartnerNames.current
+    // "Paid by" only once partners are set up, and only for money going out.
+    val paid = if (partnerNames.isEmpty() || e.direction != TransactionDirection.EXPENSE) ""
+        else " · Paid by " + (e.paidByPartnerId?.let { partnerNames[it] } ?: "office cash")
     Text(
-        (if (who != null) "Added by $who · " else "Added ") + com.aarush.cpm.ui.common.formatDateTime(e.createdAt),
+        (if (who != null) "Added by $who · " else "Added ") + com.aarush.cpm.ui.common.formatDateTime(e.createdAt) + paid,
         style = MaterialTheme.typography.labelSmall, color = SiteTheme.colors.muted
     )
 }
@@ -254,6 +269,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
     LaunchedEffect(projectId) { viewModel.init(projectId) }
     val allExpenses by viewModel.expenses.collectAsState()
     val materialRates by viewModel.materialRates.collectAsState()
+    val partners by viewModel.partners.collectAsState()
     var activeDirection by remember { mutableStateOf(TransactionDirection.EXPENSE) }
     var groupMode by remember { mutableStateOf(GroupMode.DATE) }
     var dateAscending by remember { mutableStateOf(true) }
@@ -265,6 +281,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
 
     val filtered = allExpenses.filter { it.direction == activeDirection }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalPartnerNames provides partners.associate { it.id to it.name }) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -339,6 +356,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
                 val grouped = when (groupMode) {
                     GroupMode.MATERIAL -> filtered.groupBy { it.itemOrMaterialName }.toSortedMap()
                     GroupMode.PERSON -> filtered.groupBy { who(it) }.toSortedMap()
+                    GroupMode.PAID_BY -> filtered.groupBy { e -> e.paidByPartnerId?.let { id -> partners.firstOrNull { it.id == id }?.name } ?: "Office cash" }.toSortedMap()
                     GroupMode.DATE -> filtered
                         .groupBy { localDayOf(it.date) } // the person's local calendar day (not UTC)
                         .toSortedMap(if (dateAscending) compareBy { it } else compareByDescending { it })
@@ -386,11 +404,12 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
         ) { Icon(Icons.Filled.Add, "Add") }
     }
+    }
 
     if (showAddDialog) {
         if (activeDirection == TransactionDirection.EXPENSE) {
             AddEditMaterialExpenseDialog(
-                materialRates = materialRates, existing = null,
+                materialRates = materialRates, existing = null, partners = partners,
                 onDismiss = { showAddDialog = false },
                 onSubmit = { input -> viewModel.addMaterialExpense(input); showAddDialog = false }
             )
@@ -405,7 +424,7 @@ fun ExpenseTabContent(projectId: Long, viewModel: ExpenseViewModel, snackbarHost
     editingExpense?.let { expense ->
         if (expense.direction == TransactionDirection.EXPENSE) {
             AddEditMaterialExpenseDialog(
-                materialRates = materialRates, existing = expense,
+                materialRates = materialRates, existing = expense, partners = partners,
                 onDismiss = { editingExpense = null },
                 onSubmit = { input -> viewModel.updateMaterialExpense(expense, input); editingExpense = null }
             )
@@ -533,8 +552,15 @@ private fun AddEditMaterialExpenseDialog(
     materialRates: List<MaterialRateCard>,
     existing: Expense?,
     onDismiss: () -> Unit,
-    onSubmit: (MaterialExpenseInput) -> Unit
+    onSubmit: (MaterialExpenseInput) -> Unit,
+    partners: List<com.aarush.cpm.data.entity.ProjectPartner> = emptyList()
 ) {
+    // New entries default to the partner whose phone this is; office cash otherwise.
+    var paidBy by remember {
+        mutableStateOf(if (existing != null) existing.paidByPartnerId
+            else partners.firstOrNull { it.deviceId != null && it.deviceId == com.aarush.cpm.data.repository.CurrentDevice.id }?.id)
+    }
+    var paidByMenu by remember { mutableStateOf(false) }
     var dateMillis by remember { mutableStateOf(existing?.date ?: com.aarush.cpm.domain.schedule.WorkCalendar.toEpochMillis(java.time.LocalDate.now())) }
     var paymentMode by remember { mutableStateOf(existing?.paymentMode ?: PaymentMode.CASH) }
     var materialName by remember { mutableStateOf(existing?.itemOrMaterialName ?: "") }
@@ -618,6 +644,20 @@ private fun AddEditMaterialExpenseDialog(
                 }
                 OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
+                if (partners.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { paidByMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Paid by: " + (partners.firstOrNull { it.id == paidBy }?.let { "${it.name} (own money)" } ?: "Office cash"))
+                        }
+                        DropdownMenu(expanded = paidByMenu, onDismissRequest = { paidByMenu = false }) {
+                            DropdownMenuItem(text = { Text("Office cash") }, onClick = { paidBy = null; paidByMenu = false })
+                            partners.forEach { p ->
+                                DropdownMenuItem(text = { Text("${p.name} (own money, refilled later)") }, onClick = { paidBy = p.id; paidByMenu = false })
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
                 if (!isVendorLine) {
                     Box {
                         OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
@@ -740,7 +780,8 @@ private fun AddEditMaterialExpenseDialog(
                         date = dateMillis, paymentMode = paymentMode, materialName = materialName,
                         description = description, quantity = finalQty, unit = finalUnit, rate = finalRate,
                         freightAmount = freightAmount.toDoubleOrNull(), rodBreakdown = breakdown,
-                        categoryOverride = if (isVendorLine) null else categoryOverride ?: existing?.takeIf { it.itemOrMaterialName == materialName }?.category
+                        categoryOverride = if (isVendorLine) null else categoryOverride ?: existing?.takeIf { it.itemOrMaterialName == materialName }?.category,
+                        paidByPartnerId = paidBy
                     )
                 )
             }) { Text("Save") }

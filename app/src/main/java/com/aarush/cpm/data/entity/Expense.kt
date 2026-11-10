@@ -43,5 +43,8 @@ data class Expense(
     val isDemoData: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     /** Device ID of the phone that entered this line (v10); null for older rows. */
-    val enteredBy: String? = null
+    val enteredBy: String? = null,
+    /** Who paid (v12): a ProjectPartner's id when a partner paid from their own pocket
+     *  (the office refills them later); null = paid from office cash. */
+    val paidByPartnerId: Long? = null
 )

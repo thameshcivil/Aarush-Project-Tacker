@@ -28,6 +28,7 @@ class AppContainer(context: Context) {
     val expenseRepository by lazy { ExpenseRepository(db) }
     val vendorRepository by lazy { VendorRepository(db) }
     val clientPaymentRepository by lazy { ClientPaymentRepository(db) }
+    val cashRepository by lazy { CashRepository(db) }
     val scheduleRepository by lazy { ScheduleRepository(db) }
     val notificationRepository by lazy { NotificationRepository(db) }
     val projectSummaryRepository by lazy { ProjectSummaryRepository(db) }

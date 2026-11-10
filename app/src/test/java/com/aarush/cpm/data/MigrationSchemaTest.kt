@@ -87,4 +87,15 @@ class MigrationSchemaTest {
         val col = Regex("ADD COLUMN (\\w+) (\\w+ NOT NULL)").find(AppDatabase.SQL_10_11_ADD_PROFIT)!!.groupValues
         assertTrue(table, table.contains("${col[1]} ${col[2]}"))
     }
+
+    // ---------------------------------------------------------------- v11 → v12 (partners' cash)
+
+    @Test fun partnersAndCashTablesMatchRoom() {
+        requireSchema()
+        val json = schemaFile!!.readText()
+        assertEquals(norm(createSql(json, "project_partners"), "project_partners"), norm(AppDatabase.SQL_11_12_CREATE_PARTNERS, "project_partners"))
+        assertEquals(norm(createSql(json, "cash_entries"), "cash_entries"), norm(AppDatabase.SQL_11_12_CREATE_CASH_ENTRIES, "cash_entries"))
+        val expenses = norm(createSql(json, "expenses"), "expenses")
+        assertTrue(expenses, expenses.contains("paidByPartnerId INTEGER") && !expenses.contains("paidByPartnerId INTEGER NOT NULL"))
+    }
 }

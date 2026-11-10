@@ -36,7 +36,9 @@ import com.aarush.cpm.data.entity.*
         ActivityProgressLog::class,
         VendorWork::class,
         TeamDevice::class,
-        ProjectMember::class
+        ProjectMember::class,
+        ProjectPartner::class,
+        CashEntry::class
     ],
     version = AppDatabase.VERSION,
     exportSchema = true
@@ -68,6 +70,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityProgressLogDao(): ActivityProgressLogDao
     abstract fun vendorWorkDao(): VendorWorkDao
     abstract fun teamDao(): TeamDao
+    abstract fun cashDao(): CashDao
 
     companion object {
         /** File name of the underlying SQLite database — also used by the backup/restore
@@ -76,7 +79,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** Current schema version. Also used by restore-from-backup to reject a backup made
          *  by a newer app version (Room cannot downgrade a schema). */
-        const val VERSION = 11
+        const val VERSION = 12
 
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -317,6 +320,26 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) { db.execSQL(SQL_10_11_ADD_PROFIT) }
         }
 
+        /** v11 → v12: partners' cash. Who paid each expense (office cash or a partner), each
+         *  partner's profit share, and profit taken / refills. Additive; existing expenses
+         *  count as paid from office cash. */
+        internal const val SQL_11_12_CREATE_PARTNERS =
+            "CREATE TABLE IF NOT EXISTS `project_partners` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `projectId` INTEGER NOT NULL, " +
+                "`name` TEXT NOT NULL, `sharePercent` REAL NOT NULL, `deviceId` TEXT, `createdAt` INTEGER NOT NULL)"
+        internal const val SQL_11_12_CREATE_CASH_ENTRIES =
+            "CREATE TABLE IF NOT EXISTS `cash_entries` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `projectId` INTEGER NOT NULL, " +
+                "`partnerId` INTEGER NOT NULL, `type` TEXT NOT NULL, `amount` REAL NOT NULL, `date` INTEGER NOT NULL, `notes` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, `enteredBy` TEXT)"
+        internal const val SQL_11_12_ADD_PAID_BY = "ALTER TABLE expenses ADD COLUMN paidByPartnerId INTEGER"
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_11_12_CREATE_PARTNERS)
+                db.execSQL(SQL_11_12_CREATE_CASH_ENTRIES)
+                db.execSQL(SQL_11_12_ADD_PAID_BY)
+            }
+        }
+
         /** Cloud sync bookkeeping (change-tracking triggers and the sync_* tables) is kept
          *  outside Room's entities and (re)created on every open, so it needs no schema
          *  version bump and a restored backup gets it too. See data/sync/SyncEngine. */
@@ -333,7 +356,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .addCallback(SyncSetupCallback)
                     .build().also { INSTANCE = it }
             }

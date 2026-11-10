@@ -5,7 +5,10 @@ import androidx.room.PrimaryKey
 
 enum class VendorWorkCategory {
     CIVIL, STRUCTURAL, MASON, CARPENTER, ELECTRICIAN, PLUMBING,
-    HVAC, PAINTING, FLOORING, ALUMINIUM, FABRICATION, OTHER
+    HVAC, PAINTING, FLOORING, ALUMINIUM, FABRICATION, OTHER,
+    /** Carpenter for doors, windows and cupboards (counts as Joinery). CARPENTER is shuttering
+     *  carpentry and counts as Civil. Added last so stored names never shift. */
+    JOINERY_CARPENTER
 }
 
 enum class VendorRateType { PER_SQFT, LUMP_SUM, QUANTITY_X_RATE, PERCENTAGE, CUSTOM }

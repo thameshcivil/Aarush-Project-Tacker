@@ -56,7 +56,9 @@ object SyncSchema {
         p("activity_progress_logs", "activityId" to "schedule_activities"),
         p("labour_entries", "scheduleActivityId" to "schedule_activities"),
         p("project_progress"),
-        p("expenses", "vendorId" to "vendors"),
+        p("project_partners"),
+        p("expenses", "vendorId" to "vendors", "paidByPartnerId" to "project_partners"),
+        p("cash_entries", "partnerId" to "project_partners"),
         p("material_purchases", "expenseId" to "expenses", "vendorId" to "vendors"),
         p("material_usages", "progressLogId" to "activity_progress_logs"),
         p("client_payments")

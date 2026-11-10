@@ -379,7 +379,7 @@ private fun AddEditVendorDialog(
                 Box {
                     OutlinedButton(shape = MaterialTheme.shapes.small, onClick = { wcMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Category: ${workCategory.name}") }
                     DropdownMenu(expanded = wcMenu, onDismissRequest = { wcMenu = false }) {
-                        VendorWorkCategory.values().forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { workCategory = c; wcMenu = false }) }
+                        VendorWorkCategory.values().forEach { c -> DropdownMenuItem(text = { Text(com.aarush.cpm.ui.common.humanizeLabel(c.name)) }, onClick = { workCategory = c; wcMenu = false }) }
                     }
                 }
                 Spacer(Modifier.height(6.dp))

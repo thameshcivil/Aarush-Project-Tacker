@@ -57,7 +57,7 @@ internal enum class MoreDestination(val label: String, val hint: String, val ico
 }
 
 /** The Expenses tab's two views: the expense ledger and Budget tracking. */
-internal enum class MoneyView(val label: String) { Expenses("Expenses"), Budget("Budget") }
+internal enum class MoneyView(val label: String) { Expenses("Expenses"), Budget("Budget"), Cash("Cash") }
 
 /** One project's whole workspace: shared top bar, five-destination bottom navigation. Tabs
  *  are in-screen state (not routes), so app routes and back behaviour are unchanged; Back
@@ -78,6 +78,7 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
     val vendorViewModel: VendorViewModel = viewModel(factory = factory)
     val settingsViewModel: ProjectSettingsViewModel = viewModel(factory = factory)
     val teamViewModel: TeamViewModel = viewModel(factory = factory)
+    val cashViewModel: com.aarush.cpm.ui.cash.CashViewModel = viewModel(factory = factory)
     val access = LocalAccess.current
     val projectAccess = access.forProject(projectId)
     val projectName by homeViewModel.projectName.collectAsState()
@@ -88,6 +89,7 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
     val title = when {
         inMoreDestination -> moreDestination!!.label
         selectedTab == ProjectTab.Expenses && moneyView == MoneyView.Budget -> "Budget tracking"
+        selectedTab == ProjectTab.Expenses && moneyView == MoneyView.Cash -> "Office cash & partners"
         else -> selectedTab.label
     }
 
@@ -128,6 +130,7 @@ fun ProjectScreen(projectId: Long, factory: AppViewModelFactory, onBack: () -> U
                     when (moneyView) {
                         MoneyView.Expenses -> ExpenseTabContent(projectId = projectId, viewModel = expenseViewModel, snackbarHostState = snackbarHostState)
                         MoneyView.Budget -> BudgetTrackingTabContent(projectId = projectId, viewModel = homeViewModel, snackbarHostState = snackbarHostState)
+                        MoneyView.Cash -> com.aarush.cpm.ui.cash.CashTabContent(projectId = projectId, viewModel = cashViewModel, snackbarHostState = snackbarHostState)
                     }
                 }
                 ProjectTab.More -> when (moreDestination) {

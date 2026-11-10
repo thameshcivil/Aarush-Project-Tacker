@@ -18,7 +18,7 @@ class Converters {
     @TypeConverter
     fun fromVendorWorkCategory(v: VendorWorkCategory): String = v.name
     @TypeConverter
-    fun toVendorWorkCategory(v: String): VendorWorkCategory = VendorWorkCategory.valueOf(v)
+    fun toVendorWorkCategory(v: String): VendorWorkCategory = runCatching { VendorWorkCategory.valueOf(v) }.getOrDefault(VendorWorkCategory.OTHER)
 
     @TypeConverter
     fun fromVendorRateType(v: VendorRateType): String = v.name
@@ -58,4 +58,9 @@ class Converters {
     fun fromTeamRole(v: TeamRole): String = v.name
     @TypeConverter
     fun toTeamRole(v: String): TeamRole = runCatching { TeamRole.valueOf(v) }.getOrDefault(TeamRole.VIEWER)
+
+    @TypeConverter
+    fun fromCashEntryType(v: CashEntryType): String = v.name
+    @TypeConverter
+    fun toCashEntryType(v: String): CashEntryType = CashEntryType.valueOf(v)
 }
