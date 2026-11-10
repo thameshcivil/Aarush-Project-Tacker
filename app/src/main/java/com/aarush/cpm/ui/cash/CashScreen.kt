@@ -180,7 +180,7 @@ internal fun CashContent(
                 }
             }
         }
-        items(pos.partners, key = { it.partner.id }) { pc ->
+        items(pos.partners, key = { "partner-${it.partner.id}" }) { pc ->
             PartnerSection(pc, pos, canManage, onRefill = { onRefill(pc) }, onTakeProfit = { onTakeProfit(pc) })
         }
         if (pos.partners.isNotEmpty()) {
@@ -197,7 +197,7 @@ internal fun CashContent(
         }
         if (entries.isNotEmpty()) {
             item { SectionTitle("Profit taken & refills") }
-            items(entries, key = { it.id }) { e ->
+            items(entries, key = { "entry-${it.id}" }) { e ->
                 EntryRow(e, names[e.partnerId] ?: "Removed partner", canManage, onDelete = { onDelete(e) })
             }
         }
